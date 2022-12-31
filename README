@@ -2,7 +2,7 @@ SuperbackedDownloader (sbdl)
 
 macOS shell script and LaunchAgent to automatically download Superbacked updates and auxiliary files
 
-Current version: 0.1
+Current version: 0.2
 
 Superbacked website: https://superbacked.com/
 Superbacked on GitHub: https://github.com/superbacked/superbacked
@@ -48,12 +48,18 @@ The initial run of the LaunchAgent will fail with an error, because the configur
 MANDATORY CONFIGURATION
 
 * open the file sbdl.cfg in a text editor
-* replace '<yourLicenseKey>' with your actual software license key
+* License: replace '<yourLicenseKey>' with your actual software license key
 * save & close
 
 OPTIONAL CONFIGURATION
 
 * open the file sbdl.cfg in a text editor
-* enter a download directory (full path) to avoid downloading to ~/Downloads
-* enter 'op' as the software label if you are not using the default 'std' release
+* DownloadPath: enter a download directory (full path) to avoid downloading to ~/Downloads
+* LinuxDownload: enter 'y' or 'yes' etc. to additionally download the Linux AppImage
+* ReleaseLabel: enter 'op' as the software label if you are not using the default 'std' release
 * save & close
+
+OPTIONAL DEPENDENCIES
+
+* 7-zip: install e.g. with Homebrew
+NOTE: the 7z command is only used to coarsely verify the integrity of an already downloaded Linux AppImage
