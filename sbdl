@@ -1,0 +1,185 @@
+#!/bin/zsh
+# shellcheck shell=bash
+
+# sbdl 0.1
+# download Superbacked & auxiliary files
+# shell script for LaunchAgent
+
+export LANG=en_US.UTF-8
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
+
+uiprocess="Superbacked Downloader"
+process="sbdl"
+account=$(id -u)
+accountname=$(id -un)
+bundleid="com.superbacked.std"
+appdlurl1="https://superbacked.com/api/downloads/superbacked-"
+appdlurl2="-latest.dmg?license="
+gitdlurl="https://raw.githubusercontent.com/superbacked/superbacked/main/releases/v"
+
+logloc="$HOME/Library/Logs/local.$accountname.$process.log"
+exec > >(tee -a "$logloc") 2>&1
+
+# create configuration file/directory
+configdir="$HOME/Library/Application Support/SuperbackedDownloader"
+! [[ -d "$configdir" ]] && mkdir -p "$configdir" 2>/dev/null
+configloc="$configdir/sbdl.cfg"
+! [[ -f "$configloc" ]] && echo -e "# Mandatory: please enter your personal software license key\nLicense: <yourLicenseKey>\n# Optional: enter the full path to your preferred download folder\nDownloadPath: \n# Optional: release label can be set to 'op' (special operator release for law firms)\nReleaseLabel: " > "$configloc" 2>/dev/null
+
+# function: error beep
+_beep () {
+	osascript -e 'beep' -e 'delay 0.5' &>/dev/null
+}
+
+# function: success sound
+_success () {
+	afplay "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/burn complete.aif" &>/dev/null
+}
+
+# function: info sound
+_info () {
+	afplay "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/screen_sharing_started.caf" &>/dev/null
+}
+
+# function: notify user
+_notify () {
+	osascript &>/dev/null << EOT
+tell application "System Events"
+	display notification "$2" with title "$uiprocess [" & "$account" & "]" subtitle "$1"
+end tell
+EOT
+}
+
+currentdate=$(date)
+echo -e "\n*** $uiprocess launched: $currentdate ***"
+
+# configuration
+config=$(cat "$configloc" 2>/dev/null)
+if ! [[ $config ]] ; then
+	echo "ERROR: configuration is empty!"
+	_notify "❌ Error: configuration!" "Configuration is empty"
+	_beep
+	exit 1
+fi
+echo "INFO: configuration imported from $configloc"
+
+# check configuration for software license key
+license=$(echo "$config" | grep "^License:" | awk -F":" '{print $2}' | xargs | sed -e 's/^ *//' -e 's/ *$//')
+if ! [[ $license ]] || echo "$license" | grep "yourLicenseKey" &>/dev/null ; then
+	echo -e "NOTE: no software license key detected in configuration!\nNOTE: please edit configuration manually"
+	_notify "ℹ️ Software license key missing" "Please edit configuration manually"
+	_info
+	exit
+fi
+echo "INFO: software license key detected in configuration"
+
+# check configuration for software license key
+label=$(echo "$config" | grep "^ReleaseLabel:" | awk -F":" '{print $2}' | xargs | sed -e 's/^ *//' -e 's/ *$//')
+if ! [[ $label ]] ; then
+	label="std"
+	echo "INFO: auto-set to std release"
+else
+	echo "INFO: set to $label release"
+fi
+finalappdlurl="$appdlurl1$label$appdlurl2$license"
+
+# read remote version number
+version=$(curl -sL --connect-timeout 10 "https://github.com/superbacked/superbacked/tree/main/releases" | grep "href=\"/superbacked/superbacked/tree/main/releases/" | tail -n 1 | rev | awk -F"[<>]" '{print $5}' | rev | sed 's/^v//' | xargs)
+if ! [[ $version ]] ; then
+	echo "ERROR: new version information missing!"
+	_notify "❌ Error: new version!" "Information missing"
+	_beep
+	exit 1
+fi
+
+# search for installed Superbacked app
+apploc=$(mdfind "kMDItemCFBundleIdentifier == '""$bundleid""'" 2>/dev/null | awk 'NR==1')
+if ! [[ $apploc ]] ; then
+	echo -e "NOTE: Superbacked not installed yet!\nRemote version: $version"
+else
+	echo "INFO: software installed at $apploc"
+	# read local version number
+	plistloc="$apploc/Contents/Info.plist"
+	localversion=$(defaults read "$plistloc" CFBundleVersion 2>/dev/null)
+	if ! [[ $localversion ]] ; then
+		echo "ERROR: unable to read local version number"
+		_notify "⚠️ Error: version number!" "Unable to read local version number"
+		_beep
+		exit 1
+	fi
+	echo -e "Installed version: $localversion\nRemote version: $version"
+
+	# compare version numbers
+	newestversion=$(echo -e "$version\n$localversion" | sort -rV | head -n 1)
+	echo "Newest version: $newestversion"
+	if [[ $localversion == "$newestversion" ]] ; then
+		echo "Newest version already installed: exiting..."
+		exit
+	else
+		
+		echo "Newer version available: downloading..."
+		_notify "ℹ️ Newer version available" "$version <- $localversion"
+		_info
+	fi
+fi
+
+# determine download path
+dlpath=$(echo "$config" | grep "^DownloadPath:" | awk -F":" '{print $2}' | xargs | sed -e 's/^ *//' -e 's/ *$//')
+if ! [[ $dlpath ]] || ! [[ -d "$dlpath" ]] ; then
+	dlpath="$HOME/Downloads"
+	echo "INFO: using default target folder $dlpath"
+else
+	echo "INFO: using target folder $dlpath"
+fi
+
+# download auxiliary files from GitHub first
+sleep 1
+echo "Downloading auxiliary files from GitHub..."
+errors=false
+cd "$dlpath"
+rm -f ./"SHA256SUMS" 2>/dev/null
+if ! curl -sL --connect-timeout 10 -o ./SHA256SUMS "$gitdlurl$version/SHA256SUMS" 2>/dev/null ; then
+	echo "ERROR: downloading SHA256SUMS!"
+	_notify "⚠️ Error: download!" "SHA256SUMS"
+	_beep
+	errors=true
+else
+	echo "SUCCESS: downloaded SHA256SUMS"
+	_notify "☑️ Download finished" "SHA256SUMS"
+fi
+sleep 1
+rm -f ./"SHA256SUMS.asc" 2>/dev/null
+if ! curl -sL --connect-timeout 10 -o ./SHA256SUMS.asc "$gitdlurl$version/SHA256SUMS.asc" 2>/dev/null ; then
+	echo "ERROR: downloading SHA256SUMS.asc!"
+	_notify "⚠️ Error: download!" "SHA256SUMS.asc"
+	_beep
+	errors=true
+else
+	echo "SUCCESS: downloaded SHA256SUMS.asc"
+	_notify "☑️ Download finished" "SHA256SUMS.asc"
+fi
+
+# download main application
+filename=$(curl -I "$finalappdlurl" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
+! [[ $filename ]] && filename="superbacked-$label-$version.dmg"
+echo "Downloading: $filename"
+_notify "⏳ Please wait: downloading…" "$filename" &
+rm -f ./"$filename" 2>/dev/null
+if ! curl -sL --connect-timeout 10 -o ./"$filename" "$finalappdlurl" 2>/dev/null ; then
+	echo "ERROR: download failed!"
+	_notify "❌ Error: download!" "$filename"
+	_beep
+	exit 1
+else
+	echo "SUCCESS: downloaded Superbacked v$version"
+	_notify "✅ Download finished" "Superbacked v$version"
+	_success
+fi
+
+if $errors ; then
+	exit 1
+else
+	echo "INFO: all files downloaded"
+	exit
+fi
+

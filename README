@@ -1,0 +1,59 @@
+SuperbackedDownloader (sbdl)
+
+macOS shell script and LaunchAgent to automatically download Superbacked updates and auxiliary files
+
+Current version: 0.1
+
+Superbacked website: https://superbacked.com/
+Superbacked on GitHub: https://github.com/superbacked/superbacked
+Superbacked developer on GitHub: https://github.com/sunknudsen
+
+NOTES
+
+For SuperbackedDownloader to work, the Superbacked application itself needs to be installed on the same Mac as SuperbackedDownloader. If Superbacked is not installed, SuperbackedDownloader will just download the latest release over and over again.
+
+If you are using your main instance of Superbacked on an air-gapped or factory-reset Mac, you should run this script/agent on your daily-driver Mac containing a placeholder installation of Superbacked.
+
+SCRIPT INSTALLATION
+
+* `chmod +x ./sbdl`
+* `cp ./sbdl /usr/local/bin/sbdl` (use sudo if you receive a permissions error)
+* if you use a different path, you need to modify the agent's plist file accordingly (see below)
+
+AGENT MODIFICATION
+
+* rename file: replace '$USER' with your local macOS user name, i.e. with the output of `id -un` or of `echo $USER`
+* open the agent's plist file in a text editor
+* replace all instances of '$USER' with your local macOS user name
+* OPTIONAL: modify the 'Program' key if you have installed the script into a different path than /usr/local/bin
+* save & close
+
+AGENT INSTALLATION
+
+* `cp ./local.$USER.sbdl.plist ~/Library/LaunchAgents/local.$USER.sbdl.plist`
+* `launchctl load ~/Library/LaunchAgents/local.$USER.sbdl.plist`
+* `launchctl start local.$USER.sbdl.plist`
+
+FILES CREATED
+
+(1) Log: ~/Library/Logs/local.$USER.sbdl.log
+(2a) Configuration directory: ~/Library/Application Support/SuperbackedDownloader
+(2b) Configuration file: ~/Library/Application Support/SuperbackedDownloader/sbdl.cfg
+(3) stdout & stderr created by the agent in /tmp
+
+ERROR AT FIRST RUN
+
+The initial run of the LaunchAgent will fail with an error, because the configuration file is still missing your personal software license key. You need to enter your license key manually.
+
+MANDATORY CONFIGURATION
+
+* open the file sbdl.cfg in a text editor
+* replace '<yourLicenseKey>' with your actual software license key
+* save & close
+
+OPTIONAL CONFIGURATION
+
+* open the file sbdl.cfg in a text editor
+* enter a download directory (full path) to avoid downloading to ~/Downloads
+* enter 'op' as the software label if you are not using the default 'std' release
+* save & close
