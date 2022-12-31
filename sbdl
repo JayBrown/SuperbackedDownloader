@@ -74,7 +74,7 @@ if ! [[ $license ]] || echo "$license" | grep "yourLicenseKey" &>/dev/null ; the
 fi
 echo "INFO: software license key detected in configuration"
 
-# check configuration for software license key
+# check configuration for software release label (default to std)
 label=$(echo "$config" | grep "^ReleaseLabel:" | awk -F":" '{print $2}' | xargs | sed -e 's/^ *//' -e 's/ *$//')
 if ! [[ $label ]] ; then
 	label="std"
@@ -117,7 +117,6 @@ else
 		echo "Newest version already installed: exiting..."
 		exit
 	else
-		
 		echo "Newer version available: downloading..."
 		_notify "ℹ️ Newer version available" "$version <- $localversion"
 		_info
