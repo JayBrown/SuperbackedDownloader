@@ -1,7 +1,7 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# sbdl 0.2
+# sbdl 0.2.1
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
@@ -17,6 +17,7 @@ appdlurl1="https://superbacked.com/api/downloads/superbacked-"
 appdlurl2="-latest.dmg?license="
 appdlurl3="-latest.AppImage?license="
 gitdlurl="https://raw.githubusercontent.com/superbacked/superbacked/main/releases/v"
+relurl="https://github.com/superbacked/superbacked/tree/main/releases"
 
 logloc="$HOME/Library/Logs/local.$accountname.$process.log"
 exec > >(tee -a "$logloc") 2>&1
@@ -85,7 +86,14 @@ fi
 finalappdlurl="$appdlurl1$label$appdlurl2$license"
 
 # read remote version number
-version=$(curl -sL --connect-timeout 10 "https://github.com/superbacked/superbacked/tree/main/releases" | grep "href=\"/superbacked/superbacked/tree/main/releases/" | tail -n 1 | rev | awk -F"[<>]" '{print $5}' | rev | sed 's/^v//' | xargs)
+if command -v lynx &>/dev/null ; then
+	version=$(lynx -dump "$relurl" 2>/dev/null | grep "\. $relurl/v" | awk -F"/v" '{print $NF}' | sort -rV | head -n 1 | xargs)
+	if ! [[ $version ]] ; then
+		version=$(curl -sL --connect-timeout 10 "$relurl" | grep "href=\"/superbacked/superbacked/tree/main/releases/" | rev | awk -F"[<>]" '{print $5}' | rev | sed 's/^v//' | sort -rV | head -n 1 | xargs)
+	fi
+else
+	version=$(curl -sL --connect-timeout 10 "$relurl" | grep "href=\"/superbacked/superbacked/tree/main/releases/" | rev | awk -F"[<>]" '{print $5}' | rev | sed 's/^v//' | sort -rV | head -n 1 | xargs)
+fi
 if ! [[ $version ]] ; then
 	echo "ERROR: new version information missing!"
 	_notify "❌ Error: new version!" "Information missing"
