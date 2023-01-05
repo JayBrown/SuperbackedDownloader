@@ -1,7 +1,7 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# sbdl 0.2.1
+# sbdl 0.3
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
@@ -176,6 +176,18 @@ if ! curl -sL --connect-timeout 10 -o ./SHA256SUMS.asc "$gitdlurl$version/SHA256
 else
 	echo "SUCCESS: downloaded SHA256SUMS.asc"
 	_notify "☑️ Download finished" "SHA256SUMS.asc"
+fi
+sleep 1
+rnfilename="superbacked-$label-$version-release-notes.txt"
+rm -f ./"$rnfilename" 2>/dev/null
+if ! curl -sL --connect-timeout 10 -o ./"$rnfilename" "$gitdlurl$version/$rnfilename" 2>/dev/null ; then
+	echo "ERROR: downloading release notes!"
+	_notify "⚠️ Error: download!" "$rnfilename"
+	_beep
+	errors=true
+else
+	echo "SUCCESS: downloaded $rnfilename"
+	_notify "☑️ Download finished" "$rnfilename"
 fi
 
 # download main application DMG
