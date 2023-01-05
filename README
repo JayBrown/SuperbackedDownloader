@@ -23,8 +23,10 @@ When a new update has been released, the shell script will download the followin
 
 SCRIPT INSTALLATION
 
-* `chmod +x ./sbdl`
-* `cp ./sbdl /usr/local/bin/sbdl` (use sudo if you receive a permissions error)
+* download or clone this repository
+* `chmod +x ./sbdl` (if necessary)
+* downloaded repo: `cp ./sbdl /usr/local/bin/sbdl` (use sudo if you receive a permissions error)
+* cloned repo: `ln -s ./sbdl /usr/local/bin/sbdl` (use sudo if you receive a permissions error)
 * if you use a different path, you need to modify the agent's plist file accordingly (see below)
 
 AGENT MODIFICATION
