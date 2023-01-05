@@ -1,18 +1,18 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# sbdl 0.3
+# sbdl 0.3.1
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
+sbdlversion="0.3.1"
 uiprocess="Superbacked Downloader"
 process="sbdl"
 account=$(id -u)
 accountname=$(id -un)
-bundleid="com.superbacked.std"
 appdlurl1="https://superbacked.com/api/downloads/superbacked-"
 appdlurl2="-latest.dmg?license="
 appdlurl3="-latest.AppImage?license="
@@ -53,7 +53,7 @@ EOT
 }
 
 currentdate=$(date)
-echo -e "\n*** $uiprocess launched: $currentdate ***"
+echo -e "\n*** $uiprocess ($process $sbdlversion) launched: $currentdate ***"
 
 # configuration
 config=$(cat "$configloc" 2>/dev/null)
@@ -79,9 +79,11 @@ echo "INFO: software license key detected in configuration"
 label=$(echo "$config" | grep "^ReleaseLabel:" | awk -F":" '{print $2}' | xargs | sed -e 's/^ *//' -e 's/ *$//')
 if ! [[ $label ]] ; then
 	label="std"
-	echo "INFO: auto-set to std release"
+	bundleid="com.superbacked.$label"
+	echo "INFO: auto-set to std release ($bundleid)"
 else
-	echo "INFO: set to $label release"
+	bundleid="com.superbacked.$label"
+	echo "INFO: set to $label release ($bundleid)"
 fi
 finalappdlurl="$appdlurl1$label$appdlurl2$license"
 
@@ -193,7 +195,6 @@ fi
 # download main application DMG
 filename=$(curl -I "$finalappdlurl" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
 ! [[ $filename ]] && filename="superbacked-$label-$version.dmg"
-echo "Downloading: $filename"
 if [[ -f ./"$filename" ]] ; then
 	echo "NOTE: file already exists - checking..."
 	if hdiutil verify ./"$filename" &>/dev/null ; then
