@@ -1,14 +1,14 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# sbdl 0.4.1
+# sbdl 0.5
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
-sbdlversion="0.4.1"
+sbdlversion="0.5.0"
 uiprocess="Superbacked Downloader"
 process="sbdl"
 account=$(id -u)
@@ -21,6 +21,7 @@ appdlurl3="-latest.AppImage?license="
 gitdlurl="https://raw.githubusercontent.com/superbacked/superbacked/main/releases/v"
 relurl="https://github.com/superbacked/superbacked/tree/main/releases"
 devgpg="Primary key fingerprint: E786 274B C92B 47C2 3C1C  F44B 8C9C A674 C47C A060"
+devskid="0A3997912C165C0C15E2BBF4FB7BEB8D69B186E2"
 
 logloc="$HOME/Library/Logs/local.$accountname.$process.log"
 exec > >(tee -a "$logloc") 2>&1
@@ -368,6 +369,8 @@ else
 fi
 
 # download main application DMG
+appcheck=true
+dmgcheck=true
 filename=$(curl -sI --connect-timeout 10 "$finalappdlurl" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
 ! [[ $filename ]] && filename="superbacked-$label-$version.dmg"
 if [[ -f ./"$filename" ]] ; then
@@ -397,6 +400,7 @@ if [[ -f ./"$filename" ]] ; then
 			_notify "⚠️ File exists intact | unable to verify" "$filename"
 			_beep
 			dmgdl=false
+			dmgcheck=false
 			errors=true
 			chmod -x ./"$filename" 2>/dev/null
 		else
@@ -424,6 +428,8 @@ if $dmgdl ; then
 		_notify "❌ Error: download!" "$filename"
 		_beep
 		errors=true
+		dmgcheck=false
+		appcheck=false
 	else
 		curlxa=$(xattr -p user.xdg.origin.url ./"$filename" 2>/dev/null | awk -F"?" '{print $1}')
 		if [[ $curlxa == "$wherefromurl" ]] ; then
@@ -457,6 +463,7 @@ if $dmgdl ; then
 					errors=true
 					chmod -x ./"$filename" 2>/dev/null
 				fi
+				appcheck=true
 			else
 				echo "ERROR: $filename verification failed (shasum)!"
 				_notify "❌ Download: verification failed!" "shasum: $filename"
@@ -474,9 +481,162 @@ if $dmgdl ; then
 	fi
 fi
 
+# check DMG with hdiutil
+if $dmgcheck ; then
+	sleep 1
+	echo "Verifying DMG internal checksum with hdiutil..."
+	if hdiutil verify ./"$filename" &>/dev/null ; then
+		echo "SUCCESS: DMG internal checksum verified (hdiutil)"
+		_notify "✅ Internal checksum verified" "hdiutil: $filename"
+	else
+		echo "ERROR: DMG file could be corrupt (hdiutil)!"
+		_notify "❌ DMG file could be corrupt!" "hdiutil: $filename"
+		_beep
+		errors=true
+	fi
+fi
+
+# mount DMG volume & check app
+if $appcheck ; then
+	sleep 1
+	mountraw=$(hdiutil attach -nobrowse ./"$filename" 2>&1 | grep "^/dev/")
+	sleep 1
+	echo "Verifying Superbacked application..."
+	_notify "⏳ Please wait: verifying…" "Superbacked application" &
+	appcheckerror=false
+	verifyinfo="Errors:"
+	volume=$(echo "$mountraw" | tail -n 1 | awk '{print substr($0, index($0,$3))}')
+	device=$(echo "$mountraw" | tail -n 1 | awk '{print $1}')
+	parentdevice=$(echo "$mountraw" | head -n 1 | awk '{print $1}')
+	csraw=$(codesign --verify --deep --strict --verbose=4 "$volume/Superbacked.app" 2>&1 | grep -v -e "^\-\-prepared" -e "^\-\-validated" -e "^In subcomponent:" -e "^In architecture:")
+	if ! echo "$csraw" | grep "valid on disk$" &>/dev/null || ! echo "$csraw" | grep "satisfies its Designated Requirement$" &>/dev/null ; then
+		echo "INVALID: application bundle integrity!"
+		appcheckerror=true
+		if [[ $verifyinfo == "Errors:" ]] ; then
+			verifyinfo="$verifyinfo invalid"
+		else
+			verifyinfo="$verifyinfo | invalid"
+		fi
+	else
+		echo "VALID: application bundle integrity"
+	fi
+	if echo "$csraw" | grep "^file missing:" &>/dev/null ; then
+		echo "ERROR: file(s) missing from application bundle!"
+		appcheckerror=true
+		if [[ $verifyinfo == "Errors:" ]] ; then
+			verifyinfo="$verifyinfo missing files"
+		else
+			verifyinfo="$verifyinfo | missing files"
+		fi
+	else
+		echo "INFO: no missing files"
+	fi
+	if echo "$csraw" | grep "^file added:" &>/dev/null ; then
+		echo "ERROR: file(s) added to application bundle!"
+		appcheckerror=true
+		if [[ $verifyinfo == "Errors:" ]] ; then
+			verifyinfo="$verifyinfo added files"
+		else
+			verifyinfo="$verifyinfo | added files"
+		fi
+	else
+		echo "INFO: no added files"
+	fi
+	if echo "$csraw" | grep "^file modified:" &>/dev/null ; then
+		echo "ERROR: file(s) in application bundle modified!"
+		appcheckerror=true
+		if [[ $verifyinfo == "Errors:" ]] ; then
+			verifyinfo="$verifyinfo modified"
+		else
+			verifyinfo="$verifyinfo | modified"
+		fi
+	else
+		echo "INFO: no modified files"
+	fi
+	spctlraw=$(spctl -a -vvv -t install "$volume/Superbacked.app" 2>&1)
+	if ! echo "$spctlraw" | grep "\.app: accepted$" &>/dev/null ; then
+		echo "ERROR: application not accepted by macOS Gatekeeper"
+		appcheckerror=true
+		if [[ $verifyinfo == "Errors:" ]] ; then
+			verifyinfo="$verifyinfo Gatekeeper"
+		else
+			verifyinfo="$verifyinfo | Gatekeeper"
+		fi
+	else
+		echo "ACCEPTED: macOS Gatekeeper"
+	fi
+	if ! echo "$spctlraw" | grep "^source=Notarized Developer ID$" &>/dev/null ; then
+		echo "ERROR: application not notarized!"
+		appcheckerror=true
+		if [[ $verifyinfo == "Errors:" ]] ; then
+			verifyinfo="$verifyinfo unnotarized"
+		else
+			verifyinfo="$verifyinfo | unnotarized"
+		fi
+	else
+		echo "INFO: signed & notarized"
+	fi
+	xcraw=$(xcrun stapler validate "$volume/Superbacked.app" 2>&1)
+	if ! echo "$xcraw" | grep "^The validate action worked!$" &>/dev/null ; then
+		echo "ERROR: application not properly stapled!"
+		appcheckerror=true
+		if [[ $verifyinfo == "Errors:" ]] ; then
+			verifyinfo="$verifyinfo unstapled"
+		else
+			verifyinfo="$verifyinfo | unstapled"
+		fi
+	else
+		echo "INFO: properly stapled"
+	fi
+	rm -f /tmp/codesign0 /tmp/codesign1 /tmp/codesign2 &>/dev/null
+	cd /tmp
+	codesign -dvvvv --requirements - --entitlements - --extract-certificates "$volume/Superbacked.app" &>/dev/null
+	sleep .5
+	cd "$dlpath"
+	certraw=$(security verify-cert -c /tmp/codesign0 2>&1)
+	if [[ $certraw != "...certificate verification successful." ]] ; then
+		echo "ERROR (certificate): $certraw"
+		appcheckerror=true
+		skid=$(openssl x509 -in /tmp/codesign0 -inform DER -noout -text -fingerprint | grep -A1 "Subject Key Identifier" | tail -1 | xargs | sed s/://g)
+		if [[ $skid != "$devskid" ]] ; then
+			echo "NOTE: certificate SKID has changed!"
+			if [[ $verifyinfo == "Errors:" ]] ; then
+				verifyinfo="$verifyinfo SKID change | $certraw"
+			else
+				verifyinfo="$verifyinfo | SKID change | $certraw"
+			fi
+		else
+			if [[ $verifyinfo == "Errors:" ]] ; then
+				verifyinfo="$verifyinfo $certraw"
+			else
+				verifyinfo="$verifyinfo | $certraw"
+			fi
+		fi
+	else
+		echo "VERIFIED: code-signing certificate"
+	fi
+	rm -f /tmp/codesign0 /tmp/codesign1 /tmp/codesign2 &>/dev/null
+	hdiutil unmount -force "$volume" &>/dev/null
+	sleep .3
+	hdiutil detach -force "$device" &>/dev/null
+	sleep .3
+	hdiutil detach -force "$parentdevice" &>/dev/null
+	if ! $appcheckerror ; then
+		echo "SUCCESS: application bundle OK"
+		_notify "✅ Application verified" "Superbacked.app"
+		_success
+	else
+		errors=true
+		echo "ERROR: application bundle has been corrupted!"
+		_notify "❌ Superbacked.app corrupted!" "$verifyinfo"
+		_success
+	fi
+fi
+
 if ! $linuxdl ; then
 	if $errors ; then
 		echo "NOTE: there were errors!"
+		open -a Console.app "$logloc" &>/dev/null
 		exit 1
 	else
 		echo "INFO: executed without errors"
@@ -595,6 +755,7 @@ fi
 
 if $errors ; then
 	echo "NOTE: there were errors!"
+	open -a Console.app "$logloc" &>/dev/null
 	exit 1
 else
 	echo "INFO: executed without errors"

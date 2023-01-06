@@ -2,7 +2,7 @@ SuperbackedDownloader (sbdl)
 
 macOS shell script and LaunchAgent to automatically download Superbacked updates and auxiliary files
 
-Current version: 0.4.1
+Current version: 0.5.0
 
 Superbacked website: https://superbacked.com/
 Superbacked on GitHub: https://github.com/superbacked/superbacked
@@ -17,14 +17,15 @@ If you are using your main instance of Superbacked on an air-gapped or factory-r
 
 When a new update has been released, the shell script will download and verify the following files:
 
-* main application (macOS DMG or Linux AppImage)
+* GPG .asc signature file for the checksums file (download only)
 * SHA256 checksums file
-* GPG .asc signature file for the checksums file
 * release notes (.txt)
+* main distribution file (macOS DMG or Linux AppImage)
+* Superbacked application (macOS .app only)
 
 SECURITY NOTES
 
-SuperbackedDownloader is set up to automatically verify the SHA-256 checksums file using the developers GPG public key, and then verify all downloaded files using the SHA-256 checksums. Please be mindful that this amounts to convenience over security, so it would be wise to always manually verify the downloads yourself. Don't trust; verify!
+SuperbackedDownloader is set up to automatically verify the SHA-256 checksums file using the developers GPG public key, and then verify all downloaded files using the SHA-256 checksums. It will also verify the code signature integrity of the macOS .app bundle. Please be mindful that this amounts to convenience over security, so it would be wise to always manually verify the downloads yourself. Don't trust; verify!
 
 SCRIPT INSTALLATION
 
