@@ -1,14 +1,14 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# sbdl 0.4.0
+# sbdl 0.4.1
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
-sbdlversion="0.4.0"
+sbdlversion="0.4.1"
 uiprocess="Superbacked Downloader"
 process="sbdl"
 account=$(id -u)
@@ -64,7 +64,7 @@ EOT
 # function: check for initial redirect
 _redirect () {
 	mainurl="$1"
-	if ! [[ $(curl -sI "$mainurl" 2>/dev/null | grep -i "^location: " | tail -n 1 | awk -F"ocation: " '{print $NF}') ]] ; then
+	if ! [[ $(curl -sI --connect-timeout 10 "$mainurl" 2>/dev/null | grep -i "^location: " | tail -n 1 | awk -F"ocation: " '{print $NF}') ]] ; then
 		return 0
 	else
 		return 1
@@ -368,7 +368,7 @@ else
 fi
 
 # download main application DMG
-filename=$(curl -sI "$finalappdlurl" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
+filename=$(curl -sI --connect-timeout 10 "$finalappdlurl" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
 ! [[ $filename ]] && filename="superbacked-$label-$version.dmg"
 if [[ -f ./"$filename" ]] ; then
 	echo "NOTE: $filename already exists at download path - checking..."
@@ -488,7 +488,7 @@ if ! $linuxdl ; then
 fi
 
 # download main application (AppImage/Linux)
-filename_linux=$(curl -sI "$finalappdlurl_linux" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
+filename_linux=$(curl -sI --connect-timeout 10 "$finalappdlurl_linux" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
 ! [[ $filename_linux ]] && filename_linux="superbacked-$label-$version.AppImage"
 aidl=true
 if [[ -f ./"$filename_linux" ]] ; then
