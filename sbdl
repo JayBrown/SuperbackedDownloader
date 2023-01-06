@@ -1,14 +1,14 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# sbdl 0.5
+# sbdl 0.5.1
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
-sbdlversion="0.5.0"
+sbdlversion="0.5.1"
 uiprocess="Superbacked Downloader"
 process="sbdl"
 account=$(id -u)
@@ -489,10 +489,11 @@ if $dmgcheck ; then
 		echo "SUCCESS: DMG internal checksum verified (hdiutil)"
 		_notify "✅ Internal checksum verified" "hdiutil: $filename"
 	else
-		echo "ERROR: DMG file could be corrupt (hdiutil)!"
-		_notify "❌ DMG file could be corrupt!" "hdiutil: $filename"
+		echo -e "ERROR: DMG internal checksum failed (hdiutil)!\nNOTE: skipping application verification"
+		_notify "❌ Internal checksum failed!" "hdiutil: $filename"
 		_beep
 		errors=true
+		appcheck=false
 	fi
 fi
 
