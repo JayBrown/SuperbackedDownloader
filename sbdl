@@ -1,26 +1,35 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# sbdl 0.3.1
+# sbdl 0.4.0
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
-sbdlversion="0.3.1"
+sbdlversion="0.4.0"
 uiprocess="Superbacked Downloader"
 process="sbdl"
 account=$(id -u)
 accountname=$(id -un)
 appdlurl1="https://superbacked.com/api/downloads/superbacked-"
+wherefromurl="https://superbacked.com/api/downloads/superbacked-std-latest.dmg"
+wherefromurl_linux="https://superbacked.com/api/downloads/superbacked-std-latest.AppImage"
 appdlurl2="-latest.dmg?license="
 appdlurl3="-latest.AppImage?license="
 gitdlurl="https://raw.githubusercontent.com/superbacked/superbacked/main/releases/v"
 relurl="https://github.com/superbacked/superbacked/tree/main/releases"
+devgpg="Primary key fingerprint: E786 274B C92B 47C2 3C1C  F44B 8C9C A674 C47C A060"
 
 logloc="$HOME/Library/Logs/local.$accountname.$process.log"
 exec > >(tee -a "$logloc") 2>&1
+
+# for testing only
+override=false
+if [[ $1 == "--override" ]] ; then
+	override=true
+fi
 
 # create configuration file/directory
 configdir="$HOME/Library/Application Support/SuperbackedDownloader"
@@ -50,6 +59,16 @@ tell application "System Events"
 	display notification "$2" with title "$uiprocess [" & "$account" & "]" subtitle "$1"
 end tell
 EOT
+}
+
+# function: check for initial redirect
+_redirect () {
+	mainurl="$1"
+	if ! [[ $(curl -sI "$mainurl" 2>/dev/null | grep -i "^location: " | tail -n 1 | awk -F"ocation: " '{print $NF}') ]] ; then
+		return 0
+	else
+		return 1
+	fi
 }
 
 currentdate=$(date)
@@ -88,19 +107,28 @@ fi
 finalappdlurl="$appdlurl1$label$appdlurl2$license"
 
 # read remote version number
-if command -v lynx &>/dev/null ; then
-	version=$(lynx -dump "$relurl" 2>/dev/null | grep "\. $relurl/v" | awk -F"/v" '{print $NF}' | sort -rV | head -n 1 | xargs)
-	if ! [[ $version ]] ; then
-		version=$(curl -sL --connect-timeout 10 "$relurl" | grep "href=\"/superbacked/superbacked/tree/main/releases/" | rev | awk -F"[<>]" '{print $5}' | rev | sed 's/^v//' | sort -rV | head -n 1 | xargs)
-	fi
-else
-	version=$(curl -sL --connect-timeout 10 "$relurl" | grep "href=\"/superbacked/superbacked/tree/main/releases/" | rev | awk -F"[<>]" '{print $5}' | rev | sed 's/^v//' | sort -rV | head -n 1 | xargs)
-fi
-if ! [[ $version ]] ; then
-	echo "ERROR: new version information missing!"
-	_notify "❌ Error: new version!" "Information missing"
+if ! _redirect "$relurl" ; then
+	echo "ERROR: redirect in place at $relurl"
+	_notify "❌ Error: redirect!" "$relurl"
 	_beep
 	exit 1
+else
+	versionfound=false
+	if command -v lynx &>/dev/null ; then
+		version=$(lynx -dump "$relurl" 2>/dev/null | grep "\. $relurl/v" | awk -F"/v" '{print $NF}' | sort -rV | head -n 1 | xargs)
+		[[ $version ]] && versionfound=true
+	else
+		echo "NOTE: lynx is not installed! Using cURL as fallback..."
+	fi
+	if ! $versionfound ; then
+		version=$(curl -s --connect-timeout 10 "$relurl" | grep "href=\"/superbacked/superbacked/tree/main/releases/" | rev | awk -F"[<>]" '{print $5}' | rev | sed 's/^v//' | sort -rV | head -n 1 | xargs)
+	fi
+	if ! [[ $version ]] ; then
+		echo "ERROR: new version information missing!"
+		_notify "❌ Error: new version!" "Information missing"
+		_beep
+		exit 1
+	fi
 fi
 
 # search for installed Superbacked app
@@ -118,6 +146,12 @@ else
 		_beep
 		exit 1
 	fi
+	
+	# for testing only
+	if $override ; then
+		localversion="1.0.0"
+	fi
+	
 	echo -e "Installed version: $localversion\nRemote version: $version"
 
 	# compare version numbers
@@ -158,122 +192,415 @@ sleep 1
 echo "Downloading auxiliary files from GitHub..."
 errors=false
 cd "$dlpath"
-rm -f ./"SHA256SUMS" 2>/dev/null
-if ! curl -sL --connect-timeout 10 -o ./SHA256SUMS "$gitdlurl$version/SHA256SUMS" 2>/dev/null ; then
-	echo "ERROR: downloading SHA256SUMS!"
-	_notify "⚠️ Error: download!" "SHA256SUMS"
+
+# GPG signature file
+if ! _redirect "$gpgdlurl" ; then
+	echo "ERROR: redirect in place at $gpgdlurl"
+	_notify "❌ Error: redirect!" "$gpgdlurl"
 	_beep
-	errors=true
-else
-	echo "SUCCESS: downloaded SHA256SUMS"
-	_notify "☑️ Download finished" "SHA256SUMS"
+	exit 1
 fi
-sleep 1
+gpgdownloaded=false
 rm -f ./"SHA256SUMS.asc" 2>/dev/null
-if ! curl -sL --connect-timeout 10 -o ./SHA256SUMS.asc "$gitdlurl$version/SHA256SUMS.asc" 2>/dev/null ; then
+gpgdlurl="$gitdlurl$version/SHA256SUMS.asc"
+echo "Download URL: $gpgdlurl"
+if ! curl -s --connect-timeout 10 --xattr -o ./SHA256SUMS.asc "$gpgdlurl" 2>/dev/null ; then
 	echo "ERROR: downloading SHA256SUMS.asc!"
-	_notify "⚠️ Error: download!" "SHA256SUMS.asc"
+	_notify "❌ Download error!" "SHA256SUMS.asc"
 	_beep
 	errors=true
 else
-	echo "SUCCESS: downloaded SHA256SUMS.asc"
-	_notify "☑️ Download finished" "SHA256SUMS.asc"
+	curlxa=$(xattr -p user.xdg.origin.url ./SHA256SUMS.asc 2>/dev/null)
+	if [[ $curlxa == "$gpgdlurl" ]] ; then
+		echo "SUCCESS: downloaded SHA256SUMS.asc"
+		_notify "☑️ Download successful" "SHA256SUMS.asc"
+		gpgdownloaded=true
+		hexdate=$(echo "obase=16; $(date +%s)" | bc | tr '[:upper:]' '[:lower:]')
+		qxattr="0081;$hexdate;sbdl;"
+		if xattr -w com.apple.quarantine "$qxattr" ./SHA256SUMS.asc &>/dev/null ; then
+			echo "SUCCESS: added XA $qxattr to SHA256SUMS.asc"
+		else
+			echo "ERROR: unable to add XA $qxattr to SHA256SUMS.asc"
+		fi
+	else
+		rm -f ./"SHA256SUMS.asc" 2>/dev/null
+		echo "ERROR: SHA256SUMS.asc download was redirected!"
+		_notify "❌ Error: download redirected!" "SHA256SUMS.asc"
+		_beep
+		errors=true
+	fi
 fi
 sleep 1
+
+# sha256 checksums file
+if ! _redirect "$shadlurl" ; then
+	echo "ERROR: redirect in place at $shadlurl"
+	_notify "❌ Error: redirect!" "$shadlurl"
+	_beep
+	exit 1
+fi
+shasumdownloaded=false
+rm -f ./"SHA256SUMS" 2>/dev/null
+shadlurl="$gitdlurl$version/SHA256SUMS"
+echo "Download URL: $shadlurl"
+if ! curl -s --connect-timeout 10 --xattr -o ./SHA256SUMS "$shadlurl" 2>/dev/null ; then
+	echo "ERROR: downloading SHA256SUMS!"
+	_notify "❌ Download error!" "SHA256SUMS"
+	_beep
+	errors=true
+else
+	curlxa=$(xattr -p user.xdg.origin.url ./SHA256SUMS 2>/dev/null)
+	if [[ $curlxa == "$shadlurl" ]] ; then
+		echo "SUCCESS: downloaded SHA256SUMS"
+		shasumdownloaded=true
+		hexdate=$(echo "obase=16; $(date +%s)" | bc | tr '[:upper:]' '[:lower:]')
+		qxattr="0081;$hexdate;sbdl;"
+		if xattr -w com.apple.quarantine "$qxattr" ./SHA256SUMS &>/dev/null ; then
+			echo "SUCCESS: added XA $qxattr to SHA256SUMS"
+		else
+			echo "ERROR: unable to add XA $qxattr to SHA256SUMS"
+		fi
+	else
+		rm -f ./"SHA256SUMS" 2>/dev/null
+		echo "ERROR: SHA256SUMS download was redirected!"
+		_notify "❌ Error: download redirected!" "SHA256SUMS"
+		_beep
+		errors=true
+	fi
+fi
+
+# verify sha256 checksums file
+gpgverified=false
+if $shasumdownloaded ; then
+	if $gpgdownloaded ; then
+		if command -v gpg &>/dev/null ; then
+			gpgout=$(gpg --verify ./SHA256SUMS.asc 2>&1)
+			if echo "$gpgout" | grep "^gpg: Good signature " &>/dev/null && echo "$gpgout" | grep "^$devgpg$" &>/dev/null ; then
+				gpgverified=true
+				echo "SUCCESS: verified SHA256SUMS (GPG)"
+				_notify "☑️ Download verified" "GPG: SHA256SUMS"
+			else
+				echo "ERROR: GPG verification failed!"
+				_notify "❌ Verification failed!" "GPG: SHA256SUMS"
+				_beep
+				errors=true
+				chmod -x ./SHA256SUMS ./SHA256SUMS.asc 2>/dev/null
+			fi
+		else
+			echo "WARNING: GPG not installed - unable to verify!"
+			_notify "⚠️ GPG not installed!" "Unable to verify SHA256SUMS"
+			_beep
+			errors=true
+			chmod -x ./SHA256SUMS
+			sleep 1
+		fi
+	else
+		echo "WARNING: unable to verify due to SHA256SUMS.asc download error!"
+		errors=true
+		sleep 1
+	fi
+else
+	echo "WARNING: unable to verify due to SHA256SUMS download error!"
+	errors=true
+	sleep 1
+fi
+
+# release notes file
+if ! _redirect "$rndlurl" ; then
+	echo "ERROR: redirect in place at $rndlurl"
+	_notify "❌ Error: redirect!" "$rndlurl"
+	_beep
+	exit 1
+fi
+rndownloaded=false
 rnfilename="superbacked-$label-$version-release-notes.txt"
 rm -f ./"$rnfilename" 2>/dev/null
-if ! curl -sL --connect-timeout 10 -o ./"$rnfilename" "$gitdlurl$version/$rnfilename" 2>/dev/null ; then
+rndlurl="$gitdlurl$version/$rnfilename"
+echo "Download URL: $rndlurl"
+if ! curl -s --connect-timeout 10 --xattr -o ./"$rnfilename" "$rndlurl" 2>/dev/null ; then
 	echo "ERROR: downloading release notes!"
-	_notify "⚠️ Error: download!" "$rnfilename"
+	_notify "❌ Download error!" "$rnfilename"
 	_beep
 	errors=true
 else
-	echo "SUCCESS: downloaded $rnfilename"
-	_notify "☑️ Download finished" "$rnfilename"
+	curlxa=$(xattr -p user.xdg.origin.url ./"$rnfilename" 2>/dev/null)
+	if [[ $curlxa == "$rndlurl" ]] ; then
+		rndownloaded=true
+		echo "SUCCESS: downloaded $rnfilename"
+		hexdate=$(echo "obase=16; $(date +%s)" | bc | tr '[:upper:]' '[:lower:]')
+		qxattr="0081;$hexdate;sbdl;"
+		if xattr -w com.apple.quarantine "$qxattr" ./"$rnfilename" &>/dev/null ; then
+			echo "SUCCESS: added XA $qxattr to $rnfilename"
+		else
+			echo "ERROR: unable to add XA $qxattr to $rnfilename"
+		fi
+		if $shasumdownloaded ; then
+			if shasum -a 256 -c --ignore-missing SHA256SUMS 2>/dev/null | grep "\-release\-notes\.txt: OK$" &>/dev/null ; then
+				if $gpgverified ; then
+					echo "SUCCESS: verified $rnfilename (shasum)"
+					_notify "☑️ Download verified" "shasum: $rnfilename"
+				else
+					echo "WARNING: insecure verification (shasum without GPG)"
+					_notify "⚠️ Insecure download verification!" "GPG: $rnfilename"
+					_beep
+					errors=true
+				fi
+			else
+				echo "ERROR: $rnfilename verification failed (shasum)!"
+				_notify "❌ Verification failed!" "shasum: $rnfilename"
+				_beep
+				errors=true
+				chmod -x ./"$rnfilename" 2>/dev/null
+			fi
+		else
+			echo -e "SUCCESS downloaded $rnfilename\nWARNING: unable to verify with shasum due to SHA256SUMS download error"
+			_notify "⚠️ Unverified download!" "shasum: $rnfilename"
+			_beep
+			errors=true
+		fi
+	else
+		rm -f ./"$rnfilename" 2>/dev/null
+		echo "ERROR: $rnfilename download was redirected!"
+		_notify "❌ Error: download redirected!" "$rnfilename"
+		_beep
+		errors=true
+	fi
 fi
 
 # download main application DMG
-filename=$(curl -I "$finalappdlurl" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
+filename=$(curl -sI "$finalappdlurl" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
 ! [[ $filename ]] && filename="superbacked-$label-$version.dmg"
 if [[ -f ./"$filename" ]] ; then
-	echo "NOTE: file already exists - checking..."
-	if hdiutil verify ./"$filename" &>/dev/null ; then
-		echo "INFO: file already downloaded"
-		_notify "ℹ️ File already exists" "$filename"
-		_info
-		dmgdl=false
+	echo "NOTE: $filename already exists at download path - checking..."
+	if $shasumdownloaded ; then
+		if shasum -a 256 -c --ignore-missing ./SHA256SUMS 2>&1 | grep "\.dmg: OK$" &>/dev/null ; then
+			if $gpgverified ; then
+				echo "INFO: DMG file OK (shasum)"
+				_notify "✅ File exists & verified" "$filename"
+				_info
+				dmgdl=false
+			else
+				echo -e "INFO: DMG file OK (shasum)\nWARNING: insecure verification (shasum without GPG)"
+				_notify "⚠️ File exists | insecure!" "GPG: $filename"
+				_beep
+				dmgdl=false
+				errors=true
+				chmod -x ./"$filename" 2>/dev/null
+			fi
+		else
+			echo "NOTE: DMG file corrupted or out-of-date (shasum) - will unlink..."
+			dmgdl=true
+		fi
 	else
-		echo "INFO: DMG file corrupted - will unlink..."
-		dmgdl=true
+		if hdiutil verify ./"$filename" &>/dev/null ; then
+			echo -e "INFO: DMG file OK (hdiutil)\nWARNING: insecure (without any verification)!"
+			_notify "⚠️ File exists intact | unable to verify" "$filename"
+			_beep
+			dmgdl=false
+			errors=true
+			chmod -x ./"$filename" 2>/dev/null
+		else
+			echo "NOTE: DMG file corrupted (hdiutil) - will unlink..."
+			dmgdl=true
+		fi
 	fi
 else
 	dmgdl=true
 	sleep 1
 fi
 if $dmgdl ; then
+	if ! _redirect "$finalappdlurl" ; then
+		echo "ERROR: redirect in place at $finalappdlurl"
+		_notify "❌ Error: redirect!" "$finalappdlurl"
+		_beep
+		exit 1
+	fi
 	_notify "⏳ Please wait: downloading…" "$filename" &
 	echo "Downloading: $filename"
 	rm -f ./"$filename" 2>/dev/null
-	if ! curl -sL --connect-timeout 10 -o ./"$filename" "$finalappdlurl" 2>/dev/null ; then
+	echo "Download URL: $wherefromurl"
+	if ! curl -s --connect-timeout 10 --xattr -o ./"$filename" "$finalappdlurl" 2>/dev/null ; then
 		echo "ERROR: download failed!"
 		_notify "❌ Error: download!" "$filename"
 		_beep
 		errors=true
 	else
-		echo "SUCCESS: downloaded Superbacked v$version (macOS DMG)"
-		_notify "✅ Download finished" "Superbacked v$version (macOS)"
-		_success
+		curlxa=$(xattr -p user.xdg.origin.url ./"$filename" 2>/dev/null | awk -F"?" '{print $1}')
+		if [[ $curlxa == "$wherefromurl" ]] ; then
+			echo "SUCCESS: downloaded $filename"
+			if xattr -w user.xdg.origin.url "$wherefromurl?license=<redacted>" ./"$filename" &>/dev/null ; then
+				echo "SUCCESS: obscured software license code in XA user.xdg.origin.url"
+			else
+				echo "ERROR: failed to obscure software license code in XA user.xdg.origin.url"
+				if xattr -d user.xdg.origin.url ./"$filename" &>/dev/null ; then
+					echo "NOTE: deleted XA user.xdg.origin.url instead"
+				else
+					echo "ERROR: failed to delete XA user.xdg.origin.url!"
+				fi
+			fi
+			hexdate=$(echo "obase=16; $(date +%s)" | bc | tr '[:upper:]' '[:lower:]')
+			qxattr="0081;$hexdate;sbdl;"
+			if xattr -w com.apple.quarantine "$qxattr" ./"$filename" &>/dev/null ; then
+				echo "SUCCESS: added XA $qxattr to $filename"
+			else
+				echo "ERROR: unable to add XA $qxattr to $filename"
+			fi
+			if shasum -a 256 -c --ignore-missing ./SHA256SUMS 2>&1 | grep "\.dmg: OK$" &>/dev/null ; then
+				if $gpgverified ; then
+					echo "SUCCESS: $filename verified (shasum)"
+					_notify "✅ Downloaded & verified" "Superbacked v$version (macOS)"
+					_success
+				else
+					echo -e "SUCCESS: $filename verified (shasum)\nWARNING: insecure verification (shasum without GPG)!"
+					_notify "⚠️ Downloaded & verified | insecure" "GPG: $filename"
+					_beep
+					errors=true
+					chmod -x ./"$filename" 2>/dev/null
+				fi
+			else
+				echo "ERROR: $filename verification failed (shasum)!"
+				_notify "❌ Download: verification failed!" "shasum: $filename"
+				_beep
+				errors=true
+				chmod -x ./"$filename" 2>/dev/null
+			fi
+		else
+			rm -f ./"$filename" 2>/dev/null
+			echo "ERROR: $filename download was redirected!"
+			_notify "❌ Error: download redirected!" "$filename"
+			_beep
+			errors=true
+		fi
+	fi
+fi
+
+if ! $linuxdl ; then
+	if $errors ; then
+		echo "NOTE: there were errors!"
+		exit 1
+	else
+		echo "INFO: executed without errors"
+		if $rndownloaded ; then
+			qlmanage -p "$dlpath/$rnfilename" &>/dev/null
+		fi
+		exit
 	fi
 fi
 
 # download main application (AppImage/Linux)
-if $linuxdl ; then
-	filename_linux=$(curl -I "$finalappdlurl_linux" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
-	! [[ $filename_linux ]] && filename_linux="superbacked-$label-$version.AppImage"
-	echo "Downloading: $filename_linux"
-	if [[ -f ./"$filename_linux" ]] ; then
-		echo "NOTE: file already exists - checking..."
-		if ! command -v 7z &>/dev/null ; then
-			echo "INFO: file already downloaded"
-			_notify "ℹ️ File already exists" "$filename_linux"
-			_info
-			aidl=false
-		else
-			if 7z t ./"$filename_linux" 2>&1 | grep "^Can not open the file as archive$" &>/dev/null ; then
-				echo "INFO: AppImage file corrupted - will unlink..."
-				aidl=true
-			else
-				echo "INFO: file already downloaded"
-				_notify "ℹ️ File already exists" "$filename_linux"
+filename_linux=$(curl -sI "$finalappdlurl_linux" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
+! [[ $filename_linux ]] && filename_linux="superbacked-$label-$version.AppImage"
+aidl=true
+if [[ -f ./"$filename_linux" ]] ; then
+	echo "NOTE: $filename_linux already exists at download path - checking..."
+	if $shasumdownloaded ; then
+		if shasum -a 256 -c --ignore-missing ./SHA256SUMS 2>&1 | grep "\.AppImage: OK$" &>/dev/null ; then
+			if $gpgverified ; then
+				echo "INFO: AppImage file OK (shasum)"
+				_notify "✅ File exists & verified" "$filename_linux"
 				_info
 				aidl=false
+			else
+				echo -e "INFO: AppImage file OK (shasum)\nWARNING: insecure verification (shasum without GPG)"
+				_notify "⚠️ File exists | insecure!" "GPG: $filename_linux"
+				_beep
+				aidl=false
+				errors=true
+				chmod -x ./"$filename_linux" 2>/dev/null
 			fi
+		else
+			echo "NOTE: AppImage file corrupted or out-of-date (shasum) - will unlink..."
 		fi
 	else
-		aidl=true
-		sleep 1
+		if ! command -v 7z &>/dev/null ; then
+			echo -e "NOTE: 7z is not installed!\nWARNING: unable to verify or check integrity!"
+			_notify "❌ File exists | unable to verify" "$filename_linux"
+			_beep
+			aidl=false
+			errors=true
+			chmod -x ./"$filename_linux" 2>/dev/null
+		else
+			if 7z t ./"$filename_linux" 2>&1 | grep "^Can not open the file as archive$" &>/dev/null ; then
+				echo "NOTE: AppImage file corrupted (7z) - will unlink..."
+			else
+				echo -e "INFO: AppImage file OK (7z)\nWARNING: insecure (without verification)!"
+				_notify "⚠️ File exists intact | unable to verify" "$filename_linux"
+				_beep
+				aidl=false
+				errors=true
+				chmod -x ./"$filename_linux" 2>/dev/null
+			fi
+		fi
 	fi
-	if $aidl ; then
-		echo "Downloading: $filename_linux"
-		_notify "⏳ Please wait: downloading…" "$filename_linux" &
-		rm -f ./"$filename_linux" 2>/dev/null
-		if ! curl -sL --connect-timeout 10 -o ./"$filename_linux" "$finalappdlurl_linux" 2>/dev/null ; then
-			echo "ERROR: download failed!"
-			_notify "❌ Error: download!" "$filename_linux"
+fi
+if $aidl ; then
+	if ! _redirect "$finalappdlurl_linux" ; then
+		echo "ERROR: redirect in place at $finalappdlurl_linux"
+		_notify "❌ Error: redirect!" "$finalappdlurl_linux"
+		_beep
+		exit 1
+	fi
+	_notify "⏳ Please wait: downloading…" "$filename_linux" &
+	echo "Downloading: $filename_linux"
+	rm -f ./"$filename_linux" 2>/dev/null
+	echo "Download URL: $wherefromurl_linux"
+	if ! curl -s --connect-timeout 10 --xattr -o ./"$filename_linux" "$finalappdlurl_linux" 2>/dev/null ; then
+		echo "ERROR: download failed!"
+		_notify "❌ Error: download!" "$filename_linux"
+		_beep
+		errors=true
+	else
+		curlxa=$(xattr -p user.xdg.origin.url ./"$filename_linux" 2>/dev/null | awk -F"?" '{print $1}')
+		if [[ $curlxa == "$wherefromurl_linux" ]] ; then
+			echo "SUCCESS: downloaded $filename_linux"
+			if xattr -w user.xdg.origin.url "$wherefromurl_linux?license=<redacted>" ./"$filename_linux" &>/dev/null ; then
+				echo "SUCCESS: obscured software license code in XA user.xdg.origin.url"
+			else
+				echo "ERROR: failed to obscure software license code in XA user.xdg.origin.url"
+				if xattr -d user.xdg.origin.url ./"$filename_linux" &>/dev/null ; then
+					echo "NOTE: deleted XA user.xdg.origin.url instead"
+				else
+					echo "ERROR: failed to delete XA user.xdg.origin.url!"
+				fi
+			fi
+			echo "INFO: skipping addition of XA com.apple.quarantine (AppImage)"
+			if shasum -a 256 -c --ignore-missing ./SHA256SUMS 2>&1 | grep "\.AppImage: OK$" &>/dev/null ; then
+				if $gpgverified ; then
+					echo "SUCCESS: $filename_linux verified (shasum)"
+					_notify "✅ Downloaded & verified" "Superbacked v$version (Linux)"
+					_success
+				else
+					echo -e "SUCCESS: $filename_linux verified (shasum)\nWARNING: insecure verification (shasum without GPG)!"
+					_notify "⚠️ Downloaded & verified | insecure" "GPG: $filename_linux"
+					_beep
+					errors=true
+					chmod -x ./"$filename_linux" 2>/dev/null
+				fi
+			else
+				echo "ERROR: $filename_linux verification failed (shasum)!"
+				_notify "❌ Download: verification failed!" "shasum: $filename_linux"
+				_beep
+				errors=true
+				chmod -x ./"$filename_linux" 2>/dev/null
+			fi
+		else
+			rm -f ./"$filename_linux" 2>/dev/null
+			echo "ERROR: $filename_linux download was redirected!"
+			_notify "❌ Error: download redirected!" "$filename_linux"
 			_beep
 			errors=true
-		else
-			echo "SUCCESS: downloaded Superbacked v$version (Linux AppImage)"
-			_notify "✅ Download finished" "Superbacked v$version (Linux)"
-			_success
 		fi
 	fi
 fi
 
 if $errors ; then
+	echo "NOTE: there were errors!"
 	exit 1
 else
-	echo "INFO: all files downloaded"
+	echo "INFO: executed without errors"
+	if $rndownloaded ; then
+		qlmanage -p "$dlpath/$rnfilename" &>/dev/null
+	fi
 	exit
 fi
 

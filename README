@@ -2,11 +2,12 @@ SuperbackedDownloader (sbdl)
 
 macOS shell script and LaunchAgent to automatically download Superbacked updates and auxiliary files
 
-Current version: 0.3.1
+Current version: 0.4.0
 
 Superbacked website: https://superbacked.com/
 Superbacked on GitHub: https://github.com/superbacked/superbacked
 Superbacked developer on GitHub: https://github.com/sunknudsen
+Developer GPG public key fingerprint: E786 274B C92B 47C2 3C1C F44B 8C9C A674 C47C A060
 
 NOTES
 
@@ -14,12 +15,16 @@ For SuperbackedDownloader to work, the Superbacked application itself needs to b
 
 If you are using your main instance of Superbacked on an air-gapped or factory-reset Mac, you should run this script/agent on your daily-driver Mac containing a placeholder installation of Superbacked.
 
-When a new update has been released, the shell script will download the following files:
+When a new update has been released, the shell script will download and verify the following files:
 
 * main application (macOS DMG or Linux AppImage)
 * SHA256 checksums file
 * GPG .asc signature file for the checksums file
 * release notes (.txt)
+
+SECURITY NOTES
+
+SuperbackedDownloader is set up to automatically verify the SHA-256 checksums file using the developers GPG public key, and then verify all downloaded files using the SHA-256 checksums. Please be mindful that this amounts to convenience over security, so it would be wise to always manually verify the downloads yourself. Don't trust; verify!
 
 SCRIPT INSTALLATION
 
@@ -56,6 +61,7 @@ The initial run of the LaunchAgent will fail with an error, because the configur
 
 MANDATORY CONFIGURATION
 
+* please import the developer's public key (see above) into your GPG keychain.
 * open the file sbdl.cfg in a text editor
 * License: replace '<yourLicenseKey>' with your actual software license key
 * save & close
@@ -67,6 +73,11 @@ OPTIONAL CONFIGURATION
 * LinuxDownload: enter 'y' or 'yes' etc. to additionally download the Linux AppImage
 * ReleaseLabel: enter 'op' as the software label if you are not using the default 'std' release
 * save & close
+
+MANDATORY DEPENDENCIES
+
+* gpg: install e.g. with Homebrew or as part of the GPG Suite: https://gpgtools.org
+NOTE: if you have not installed gpg, SuperbackedDownloader will still work and download all related files and updates, but you will receive verification warnings.
 
 OPTIONAL DEPENDENCIES
 
