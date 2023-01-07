@@ -1,27 +1,28 @@
 #!/bin/zsh
 # shellcheck shell=bash
+# shellcheck disable=SC2164
 
-# sbdl 0.5.1
+# sbdl 0.5.2
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
-sbdlversion="0.5.1"
+sbdlversion="0.5.2"
 uiprocess="Superbacked Downloader"
 process="sbdl"
 account=$(id -u)
 accountname=$(id -un)
 appdlurl1="https://superbacked.com/api/downloads/superbacked-"
-wherefromurl="https://superbacked.com/api/downloads/superbacked-std-latest.dmg"
-wherefromurl_linux="https://superbacked.com/api/downloads/superbacked-std-latest.AppImage"
 appdlurl2="-latest.dmg?license="
 appdlurl3="-latest.AppImage?license="
 gitdlurl="https://raw.githubusercontent.com/superbacked/superbacked/main/releases/v"
 relurl="https://github.com/superbacked/superbacked/tree/main/releases"
 devgpg="Primary key fingerprint: E786 274B C92B 47C2 3C1C  F44B 8C9C A674 C47C A060"
-devskid="0A3997912C165C0C15E2BBF4FB7BEB8D69B186E2"
+currentskid="0A3997912C165C0C15E2BBF4FB7BEB8D69B186E2"
+currentteamid="4YAQ5SFA65"
+currentsubject="Developer ID Application: Superbacked, Inc. (4YAQ5SFA65)"
 
 logloc="$HOME/Library/Logs/local.$accountname.$process.log"
 exec > >(tee -a "$logloc") 2>&1
@@ -89,9 +90,10 @@ echo "INFO: configuration imported from $configloc"
 license=$(echo "$config" | grep "^License:" | awk -F":" '{print $2}' | xargs | sed -e 's/^ *//' -e 's/ *$//')
 if ! [[ $license ]] || echo "$license" | grep "yourLicenseKey" &>/dev/null ; then
 	echo -e "NOTE: no software license key detected in configuration!\nNOTE: please edit configuration manually"
-	_notify "ℹ️ Software license key missing" "Please edit configuration manually"
+	_notify "ℹ️ Software license key missing!" "Please edit configuration sbdl.cfg manually"
 	_info
-	exit
+	open "$configdir" 2>/dev/null
+	exit 1
 fi
 echo "INFO: software license key detected in configuration"
 
@@ -106,6 +108,8 @@ else
 	echo "INFO: set to $label release ($bundleid)"
 fi
 finalappdlurl="$appdlurl1$label$appdlurl2$license"
+wherefromurl="https://superbacked.com/api/downloads/superbacked-$label-latest.dmg"
+wherefromurl_linux="https://superbacked.com/api/downloads/superbacked-$label-latest.AppImage"
 
 # read remote version number
 if ! _redirect "$relurl" ; then
@@ -116,6 +120,7 @@ if ! _redirect "$relurl" ; then
 else
 	versionfound=false
 	if command -v lynx &>/dev/null ; then
+		echo "INFO: lynx installed"
 		version=$(lynx -dump "$relurl" 2>/dev/null | grep "\. $relurl/v" | awk -F"/v" '{print $NF}' | sort -rV | head -n 1 | xargs)
 		[[ $version ]] && versionfound=true
 	else
@@ -133,9 +138,13 @@ else
 fi
 
 # search for installed Superbacked app
+initialdl=false
 apploc=$(mdfind "kMDItemCFBundleIdentifier == '""$bundleid""'" 2>/dev/null | awk 'NR==1')
 if ! [[ $apploc ]] ; then
-	echo -e "NOTE: Superbacked not installed yet!\nRemote version: $version"
+	echo -e "INFO: Superbacked not installed\nINITIAL DOWNLOAD: $version"
+	_notify "ℹ️ Superbacked not installed" "Downloading: $version"
+	_info
+	initialdl=true
 else
 	echo "INFO: software installed at $apploc"
 	# read local version numbers
@@ -228,7 +237,7 @@ else
 		echo "ERROR: SHA256SUMS.asc download was redirected!"
 		_notify "❌ Error: download redirected!" "SHA256SUMS.asc"
 		_beep
-		errors=true
+		exit 1
 	fi
 fi
 sleep 1
@@ -266,7 +275,7 @@ else
 		echo "ERROR: SHA256SUMS download was redirected!"
 		_notify "❌ Error: download redirected!" "SHA256SUMS"
 		_beep
-		errors=true
+		exit 1
 	fi
 fi
 
@@ -275,6 +284,7 @@ gpgverified=false
 if $shasumdownloaded ; then
 	if $gpgdownloaded ; then
 		if command -v gpg &>/dev/null ; then
+			echo "INFO: gpg installed"
 			gpgout=$(gpg --verify ./SHA256SUMS.asc 2>&1)
 			if echo "$gpgout" | grep "^gpg: Good signature " &>/dev/null && echo "$gpgout" | grep "^$devgpg$" &>/dev/null ; then
 				gpgverified=true
@@ -364,7 +374,7 @@ else
 		echo "ERROR: $rnfilename download was redirected!"
 		_notify "❌ Error: download redirected!" "$rnfilename"
 		_beep
-		errors=true
+		exit 1
 	fi
 fi
 
@@ -476,7 +486,7 @@ if $dmgdl ; then
 			echo "ERROR: $filename download was redirected!"
 			_notify "❌ Error: download redirected!" "$filename"
 			_beep
-			errors=true
+			exit 1
 		fi
 	fi
 fi
@@ -505,6 +515,7 @@ if $appcheck ; then
 	echo "Verifying Superbacked application..."
 	_notify "⏳ Please wait: verifying…" "Superbacked application" &
 	appcheckerror=false
+	certcheckwarning=false
 	verifyinfo="Errors:"
 	volume=$(echo "$mountraw" | tail -n 1 | awk '{print substr($0, index($0,$3))}')
 	device=$(echo "$mountraw" | tail -n 1 | awk '{print $1}')
@@ -589,24 +600,57 @@ if $appcheck ; then
 	else
 		echo "INFO: properly stapled"
 	fi
+	if ! $initialdl ; then # certificate info for installed app
+		rm -f /tmp/codesign0 /tmp/codesign1 /tmp/codesign2 &>/dev/null
+		cd /tmp
+		localcsinfo=$(codesign -dvvvv --requirements - --entitlements - --extract-certificates "$apploc" 2>&1)
+		teamid=$(echo "$localcsinfo" | grep "^TeamIdentifier=" | awk -F"=" '{print $2}')
+		! [[ $teamid ]] && teamid="NULL"
+		subject=$(echo "$localcsinfo" | grep "^Authority=" | head -n 1 | awk -F"=" '{print substr($0, index($0,$2))}')
+		! [[ $subject ]] && subject="NULL"
+		skid=$(openssl x509 -in /tmp/codesign0 -inform DER -noout -text -fingerprint | grep -A1 "Subject Key Identifier" | tail -1 | xargs | sed s/://g)
+		! [[ $skid ]] && skid="NULL"
+		cd "$dlpath"
+	else # certificate info from current release
+		teamid="$currentteamid"
+		subject="$currentsubject"
+		skid="$currentskid"
+	fi
+	# certificate info for updated app
 	rm -f /tmp/codesign0 /tmp/codesign1 /tmp/codesign2 &>/dev/null
 	cd /tmp
-	codesign -dvvvv --requirements - --entitlements - --extract-certificates "$volume/Superbacked.app" &>/dev/null
-	sleep .5
+	csinfo=$(codesign -dvvvv --requirements - --entitlements - --extract-certificates "$volume/Superbacked.app" 2>&1)
+	newteamid=$(echo "$csinfo" | grep "^TeamIdentifier=" | awk -F"=" '{print $2}')
+	! [[ $newteamid ]] && newteamid="NULL"
+	newsubject=$(echo "$csinfo" | grep "^Authority=" | head -n 1 | awk -F"=" '{print substr($0, index($0,$2))}')
+	! [[ $newsubject ]] && newsubject="NULL"
+	newskid=$(openssl x509 -in /tmp/codesign0 -inform DER -noout -text -fingerprint | grep -A1 "Subject Key Identifier" | tail -1 | xargs | sed s/://g)
+	! [[ $newskid ]] && newskid="NULL"
 	cd "$dlpath"
 	certraw=$(security verify-cert -c /tmp/codesign0 2>&1)
+	sleep .5
+	rm -f /tmp/codesign0 /tmp/codesign1 /tmp/codesign2 &>/dev/null
 	if [[ $certraw != "...certificate verification successful." ]] ; then
 		echo "ERROR (certificate): $certraw"
 		appcheckerror=true
-		skid=$(openssl x509 -in /tmp/codesign0 -inform DER -noout -text -fingerprint | grep -A1 "Subject Key Identifier" | tail -1 | xargs | sed s/://g)
-		if [[ $skid != "$devskid" ]] ; then
-			echo "NOTE: certificate SKID has changed!"
-			if [[ $verifyinfo == "Errors:" ]] ; then
-				verifyinfo="$verifyinfo SKID change | $certraw"
+		if [[ $newskid != "$skid" ]] ; then
+			if [[ $newteamid != "$teamid" ]] || [[ $newsubject != "$subject" ]] ; then
+				echo -e "WARNING: SKID & TeamID or Subject have changed!\nSKID: $newskid <- $skid\nTeamID: $newteamid <- $teamid\nSubject: $newsubject <- $subject"
+				if [[ $verifyinfo == "Errors:" ]] ; then
+					verifyinfo="$verifyinfo SKID & developer change | $certraw"
+				else
+					verifyinfo="$verifyinfo | SKID & developer change | $certraw"
+				fi
 			else
-				verifyinfo="$verifyinfo | SKID change | $certraw"
+				echo -e "NOTE: SKID has changed (unverified certificate update)!\nSKID: $newskid <- $skid"
+				if [[ $verifyinfo == "Errors:" ]] ; then
+					verifyinfo="$verifyinfo SKID change | $certraw"
+				else
+					verifyinfo="$verifyinfo | SKID change | $certraw"
+				fi
 			fi
 		else
+			echo "INFO: SKID unchanged"
 			if [[ $verifyinfo == "Errors:" ]] ; then
 				verifyinfo="$verifyinfo $certraw"
 			else
@@ -615,17 +659,37 @@ if $appcheck ; then
 		fi
 	else
 		echo "VERIFIED: code-signing certificate"
+		if [[ $newskid == "$skid" ]] ; then
+			echo "INFO: SKID unchanged"
+		else
+			if [[ $newteamid != "$teamid" ]] || [[ $newsubject != "$subject" ]] ; then
+				echo -e "WARNING: SKID & TeamID or Subject have changed!\nSKID: $newskid <- $skid\nTeamID: $newteamid <- $teamid\nSubject: $newsubject <- $subject"
+				if [[ $verifyinfo == "Errors:" ]] ; then
+					verifyinfo="$verifyinfo SKID & developer change"
+				else
+					verifyinfo="$verifyinfo | SKID & developer change"
+				fi
+				certcheckwarning=true
+			else
+				echo "INFO: SKID changed, but developer unchanged (verified certificate update)"
+			fi
+		fi
 	fi
-	rm -f /tmp/codesign0 /tmp/codesign1 /tmp/codesign2 &>/dev/null
 	hdiutil unmount -force "$volume" &>/dev/null
 	sleep .3
 	hdiutil detach -force "$device" &>/dev/null
 	sleep .3
 	hdiutil detach -force "$parentdevice" &>/dev/null
 	if ! $appcheckerror ; then
-		echo "SUCCESS: application bundle OK"
-		_notify "✅ Application verified" "Superbacked.app"
-		_success
+		if ! $certcheckwarning ; then
+			echo "SUCCESS: application bundle OK"
+			_notify "✅ Application verified" "Superbacked.app"
+			_success
+		else
+			echo "WARNING: application bundle OK, but with developer changes"
+			_notify "⚠️ Superbacked.app has changed!" "$verifyinfo"
+			_beep
+		fi
 	else
 		errors=true
 		echo "ERROR: application bundle has been corrupted!"
@@ -641,6 +705,9 @@ if ! $linuxdl ; then
 		exit 1
 	else
 		echo "INFO: executed without errors"
+		if $certcheckwarning ; then
+			open -a Console.app "$logloc" &>/dev/null
+		fi
 		if $rndownloaded ; then
 			qlmanage -p "$dlpath/$rnfilename" &>/dev/null
 		fi
@@ -681,6 +748,7 @@ if [[ -f ./"$filename_linux" ]] ; then
 			errors=true
 			chmod -x ./"$filename_linux" 2>/dev/null
 		else
+			echo "INFO: 7z installed"
 			if 7z t ./"$filename_linux" 2>&1 | grep "^Can not open the file as archive$" &>/dev/null ; then
 				echo "NOTE: AppImage file corrupted (7z) - will unlink..."
 			else
@@ -749,7 +817,7 @@ if $aidl ; then
 			echo "ERROR: $filename_linux download was redirected!"
 			_notify "❌ Error: download redirected!" "$filename_linux"
 			_beep
-			errors=true
+			exit 1
 		fi
 	fi
 fi
@@ -760,9 +828,11 @@ if $errors ; then
 	exit 1
 else
 	echo "INFO: executed without errors"
+	if $certcheckwarning ; then
+		open -a Console.app "$logloc" &>/dev/null
+	fi
 	if $rndownloaded ; then
 		qlmanage -p "$dlpath/$rnfilename" &>/dev/null
 	fi
 	exit
 fi
-
