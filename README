@@ -1,4 +1,4 @@
-SuperbackedDownloader (sbdl)
+Superbacked Downloader (sbdl)
 
 macOS shell script and LaunchAgent to automatically download Superbacked updates and auxiliary files
 
@@ -11,21 +11,21 @@ Developer GPG public key fingerprint: E786 274B C92B 47C2 3C1C F44B 8C9C 
 
 NOTES
 
-For SuperbackedDownloader to work, the Superbacked application itself needs to be installed on the same Mac as SuperbackedDownloader. If Superbacked is not installed, SuperbackedDownloader will just download the latest release over and over again.
+For Superbacked Downloader to work, the Superbacked application itself needs to be installed on the same Mac as Superbacked Downloader. If Superbacked is not installed, Superbacked Downloader will just download the latest release over and over again.
 
 If you are using your main instance of Superbacked on an air-gapped or factory-reset Mac, you should run this script/agent on your daily-driver Mac containing a placeholder installation of Superbacked.
 
 When a new update has been released, the shell script will download and verify the following files:
 
 * GPG .asc signature file for the checksums file (download only)
-* SHA256 checksums file
+* SHA256 hashes file
 * release notes (.txt)
 * main distribution file (macOS DMG or Linux AppImage)
 * Superbacked application (macOS .app only)
 
 SECURITY NOTES
 
-SuperbackedDownloader is set up to automatically verify the SHA-256 checksums file using the developers GPG public key, and then verify all downloaded files using the SHA-256 checksums. It will also verify the code signature integrity of the macOS .app bundle. Please be mindful that this amounts to convenience over security, so it would be wise to always manually verify the downloads yourself. Don't trust; verify!
+Superbacked Downloader is set up to automatically verify the SHA-256 hashes file using the GPG signature file and the developer's GPG public key, and then verify all downloaded files using the SHA-256 hashes. It will also verify the internal checksum of the distribution DMG as well as the code signature integrity of the macOS .app bundle. Please be mindful that all this amounts to convenience over security, so it would be wise to always manually verify the downloads yourself. Don't trust; verify!
 
 SCRIPT INSTALLATION
 
@@ -58,13 +58,13 @@ FILES CREATED
 
 ERROR AT FIRST RUN
 
-The initial run of the LaunchAgent will fail with an error, because the configuration file is still missing your personal software license key. You need to enter your license key manually.
+The initial run of the LaunchAgent will fail with an error, because the configuration file is still missing your personal software license key. You need to enter your license key manually. (The script will automatically open the configuration folder in Finder.)
 
 MANDATORY CONFIGURATION
 
-* please import the developer's public key (see above) into your GPG keychain.
+* please import the developer's public key (see above) into your GPG keyring (or the GUI-based GPG Keychain)
 * open the file sbdl.cfg in a text editor
-* License: replace '<yourLicenseKey>' with your actual software license key
+* License: replace '<yourLicenseKey>' with your actual Superbacked software license key which you received from the developer after purchase
 * save & close
 
 OPTIONAL CONFIGURATION
@@ -77,12 +77,12 @@ OPTIONAL CONFIGURATION
 
 MANDATORY DEPENDENCIES
 
-* gpg: install e.g. with Homebrew or as part of the GPG Suite: https://gpgtools.org
-NOTE: if you have not installed gpg, SuperbackedDownloader will still work and download all related files and updates, but you will receive verification warnings.
+* gpg: install e.g. with Homebrew or MacPorts etc. (gnupg), or as part of the GPG Suite: https://gpgtools.org
+NOTE: if you have not installed gpg, Superbacked Downloader will still work and download all related files and updates, but you will receive verification warnings.
 
 OPTIONAL DEPENDENCIES
 
-* lynx: install e.g. with Homebrew
+* lynx: install e.g. with Homebrew or MacPorts etc.
 NOTE: slightly more efficient than macOS' built-in cURL for extracting the latest version number from Superbacked's GitHub repo
-* 7-zip: install e.g. with Homebrew
+* 7z: install e.g. with Homebrew or MacPorts etc. (p7zip)
 NOTE: the 7z command is only used to coarsely verify the integrity of an already downloaded Linux AppImage
