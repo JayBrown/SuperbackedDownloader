@@ -2,14 +2,14 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2164
 
-# sbdl 0.6.0
+# sbdl 0.6.1
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
-sbdlversion="0.6.0"
+sbdlversion="0.6.1"
 uiprocess="Superbacked Downloader"
 process="sbdl"
 account=$(id -u)
@@ -113,10 +113,36 @@ echo "INFO: configuration imported from $configloc"
 # check configuration for software license key
 license=$(echo "$config" | grep "^License:" | awk -F":" '{print $2}' | xargs | sed -e 's/^ *//' -e 's/ *$//')
 if ! [[ $license ]] || echo "$license" | grep "yourLicenseKey" &>/dev/null ; then
+	fileman=false
+	filemanager=$(defaults read -g NSFileViewer 2>/dev/null)
+	if [[ $filemanager ]] ; then
+		[[ $filemanager != "com.apple.Finder" ]] && fileman=true
+	fi
+	if $fileman ; then
+		fmapploc=$(mdfind "kMDItemCFBundleIdentifier == \"$filemanager\"" 2>/dev/null | LC_COLLATE=C sort | head -n 1)
+		fminfoplistloc="$fmapploc/Contents/Info.plist"
+		if ! [[ -f $fminfoplistloc ]] ; then
+			fileman=false
+		else
+			fmname=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$fminfoplistloc" 2>/dev/null)
+			! [[ $fmname ]] && fileman=false
+		fi
+	fi
 	echo -e "NOTE: no software license key detected in configuration!\nNOTE: please edit configuration manually"
 	_notify "ℹ️ Software license key missing!" "Please edit configuration sbdl.cfg manually"
 	_info
-	open "$configdir" 2>/dev/null
+	if $fileman ; then
+		echo "Revealing configuration folder in $fmname ($filemanager)..."
+		open -a "$fmname" "$configdir" &>/dev/null
+	else
+		if pgrep -x "Finder" &>/dev/null ; then
+			echo "Revealing configuration file in Finder (com.apple.Finder)..."
+			osascript -e "tell application \"Finder\"" -e "activate" -e "reveal POSIX file \"$configloc\"" -e "end tell" &>/dev/null
+		else
+			echo "Revealing configuration folder in default file manager..."
+			open "$configdir" &>/dev/null
+		fi
+	fi
 	exit 1
 fi
 echo "INFO: software license key detected in configuration"
