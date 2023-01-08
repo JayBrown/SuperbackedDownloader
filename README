@@ -4,6 +4,8 @@ macOS shell script and LaunchAgent to automatically download and verify Superbac
 
 Current version: 0.6.2
 
+SUPERBACKED INFORMATION
+
 Superbacked website: https://superbacked.com/
 Superbacked on GitHub: https://github.com/superbacked/superbacked
 Superbacked developer on GitHub: https://github.com/sunknudsen
@@ -34,6 +36,11 @@ SCRIPT INSTALLATION
 * downloaded repo: `cp ./sbdl /usr/local/bin/sbdl` (use sudo if you receive a permissions error)
 * cloned repo: `ln -s ./sbdl /usr/local/bin/sbdl` (use sudo if you receive a permissions error)
 * if you use a different path, you need to modify the agent's plist file accordingly (see below)
+
+VERIFICATION
+
+* cosign public key: https://github.com/JayBrown/JayBrown-github.com-cosign-public-key
+* `cosign verify-blob --signature ./sbdl.cosign.sig --key "$HOME/.cosign/JayBrown@github.com.cosign.pub" ./sbdl`
 
 AGENT MODIFICATION
 
