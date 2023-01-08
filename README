@@ -2,7 +2,7 @@ Superbacked Downloader (sbdl)
 
 macOS shell script and LaunchAgent to automatically download Superbacked updates and auxiliary files
 
-Current version: 0.5.2
+Current version: 0.6.0
 
 Superbacked website: https://superbacked.com/
 Superbacked on GitHub: https://github.com/superbacked/superbacked
@@ -86,3 +86,7 @@ OPTIONAL DEPENDENCIES
 NOTE: slightly more efficient than macOS' built-in cURL for extracting the latest version number from Superbacked's GitHub repo
 * 7z: install e.g. with Homebrew or MacPorts etc. (p7zip)
 NOTE: the 7z command is only used to coarsely verify the integrity of an already downloaded Linux AppImage
+
+DISCLAIMER
+
+SUPERBACKED DOWNLOADER ('THE SOFTWARE') IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, ESPECIALLY LOST OR STOLEN SECRETS AND ASSOCIATED DATA OR VALUE, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

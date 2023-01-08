@@ -2,14 +2,14 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2164
 
-# sbdl 0.5.2
+# sbdl 0.6.0
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
-sbdlversion="0.5.2"
+sbdlversion="0.6.0"
 uiprocess="Superbacked Downloader"
 process="sbdl"
 account=$(id -u)
@@ -23,6 +23,8 @@ devgpg="Primary key fingerprint: E786 274B C92B 47C2 3C1C  F44B 8C9C A674 C47C A
 currentskid="0A3997912C165C0C15E2BBF4FB7BEB8D69B186E2"
 currentteamid="4YAQ5SFA65"
 currentsubject="Developer ID Application: Superbacked, Inc. (4YAQ5SFA65)"
+disclaimersuccess="DON'T TRUST, VERIFY! You should not trust third parties for critical software: please verify the files manually to confirm that this release is not compromised!\n\nSUPERBACKED DOWNLOADER ('THE SOFTWARE') IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, ESPECIALLY LOST OR STOLEN SECRETS AND ASSOCIATED DATA OR VALUE, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+disclaimererror="DON'T TRUST, VERIFY! You should not trust third parties for critical software: please verify the files manually to confirm that this release is compromised, notify the developer, and download again at a later date!\n\nSUPERBACKED DOWNLOADER ('THE SOFTWARE') IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, ESPECIALLY LOST OR STOLEN SECRETS AND ASSOCIATED DATA OR VALUE, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
 
 logloc="$HOME/Library/Logs/local.$accountname.$process.log"
 exec > >(tee -a "$logloc") 2>&1
@@ -71,6 +73,28 @@ _redirect () {
 	else
 		return 1
 	fi
+}
+
+# function: final success prompt
+_finalsuccess () {
+osascript &>/dev/null << EOL
+tell application "System Events"
+	activate
+	set theUserChoice to button returned of (display alert "Verifications successful!" message "DON'T TRUST, VERIFY! You should not trust third parties for critical software: please verify the files manually to confirm that this release is not compromised!" & return & return & "SUPERBACKED DOWNLOADER ('THE SOFTWARE') IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, ESPECIALLY LOST OR STOLEN SECRETS AND ASSOCIATED DATA OR VALUE, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE." as critical ¬
+		buttons {"I Agree"})
+end tell
+EOL
+}
+
+# function: final error prompt
+_finalerror () {
+	osascript &>/dev/null << EOL
+tell application "System Events"
+	activate
+	set theUserChoice to button returned of (display alert "WARNING: there were errors!" message "DON'T TRUST, VERIFY! You should not trust third parties for critical software: please verify the files manually to confirm that this release is compromised, notify the developer, and download again at a later date!" & return & return & "SUPERBACKED DOWNLOADER ('THE SOFTWARE') IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, ESPECIALLY LOST OR STOLEN SECRETS AND ASSOCIATED DATA OR VALUE, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE." as critical ¬
+		buttons {"I Agree"})
+end tell
+EOL
 }
 
 currentdate=$(date)
@@ -185,6 +209,8 @@ if ! [[ $dlpath ]] || ! [[ -d "$dlpath" ]] ; then
 else
 	echo "INFO: using target folder $dlpath"
 fi
+disclaimerloc="$dlpath/SBDL_DISCLAIMER.txt"
+rm -f "$disclaimerloc" 2>/dev/null
 
 # check configuration for Linux download
 linuxinfo=$(echo "$config" | grep "^LinuxDownload:" | awk -F":" '{print $2}' | xargs | sed -e 's/^ *//' -e 's/ *$//')
@@ -390,7 +416,7 @@ if [[ -f ./"$filename" ]] ; then
 			if $gpgverified ; then
 				echo "INFO: DMG file OK (shasum)"
 				_notify "✅ File exists & verified" "$filename"
-				_info
+				_success
 				dmgdl=false
 			else
 				echo -e "INFO: DMG file OK (shasum)\nWARNING: insecure verification (shasum without GPG)"
@@ -701,13 +727,17 @@ fi
 if ! $linuxdl ; then
 	if $errors ; then
 		echo "NOTE: there were errors!"
+		echo -e "$disclaimererror" > "$disclaimerloc" 2>/dev/null
 		open -a Console.app "$logloc" &>/dev/null
+		_finalerror
 		exit 1
 	else
 		echo "INFO: executed without errors"
+		echo -e "$disclaimersuccess" > "$disclaimerloc" 2>/dev/null
 		if $certcheckwarning ; then
 			open -a Console.app "$logloc" &>/dev/null
 		fi
+		_finalsuccess
 		if $rndownloaded ; then
 			qlmanage -p "$dlpath/$rnfilename" &>/dev/null
 		fi
@@ -724,17 +754,41 @@ if [[ -f ./"$filename_linux" ]] ; then
 	if $shasumdownloaded ; then
 		if shasum -a 256 -c --ignore-missing ./SHA256SUMS 2>&1 | grep "\.AppImage: OK$" &>/dev/null ; then
 			if $gpgverified ; then
-				echo "INFO: AppImage file OK (shasum)"
-				_notify "✅ File exists & verified" "$filename_linux"
-				_info
-				aidl=false
+				echo "INFO: AppImage file verified (shasum)"
 			else
-				echo -e "INFO: AppImage file OK (shasum)\nWARNING: insecure verification (shasum without GPG)"
-				_notify "⚠️ File exists | insecure!" "GPG: $filename_linux"
-				_beep
-				aidl=false
-				errors=true
-				chmod -x ./"$filename_linux" 2>/dev/null
+				echo -e "INFO: AppImage file verified (shasum)\nWARNING: insecure verification (shasum without GPG)"
+			fi
+			if ! command -v 7z &>/dev/null ; then
+				echo -e "NOTE: 7z is not installed!\nINFO: skipping coarse AppImage integrity check!"
+				if $gpgverified ; then
+					_notify "✅ File exists & verified" "$filename_linux"
+					_success
+					aidl=false
+				else
+					_notify "⚠️ File exists | insecure!" "GPG: $filename_linux"
+					_beep
+					aidl=false
+					errors=true
+					chmod -x ./"$filename_linux" 2>/dev/null
+				fi
+			else
+				echo "INFO: 7z installed"
+				if 7z t ./"$filename_linux" 2>&1 | grep "^Can not open the file as archive$" &>/dev/null ; then
+					echo "NOTE: AppImage file might be corrupted (7z) - will unlink..."
+				else
+					echo -e "SUCCESS: AppImage file coarsely verified (7z)"
+					if $gpgverified ; then
+						_notify "✅ File exists & verified" "$filename_linux"
+						_success
+						aidl=false
+					else
+						_notify "⚠️ File exists | insecure" "GPG: $filename_linux"
+						_beep
+						aidl=false
+						errors=true
+						chmod -x ./"$filename_linux" 2>/dev/null
+					fi
+				fi
 			fi
 		else
 			echo "NOTE: AppImage file corrupted or out-of-date (shasum) - will unlink..."
@@ -752,7 +806,7 @@ if [[ -f ./"$filename_linux" ]] ; then
 			if 7z t ./"$filename_linux" 2>&1 | grep "^Can not open the file as archive$" &>/dev/null ; then
 				echo "NOTE: AppImage file corrupted (7z) - will unlink..."
 			else
-				echo -e "INFO: AppImage file OK (7z)\nWARNING: insecure (without verification)!"
+				echo -e "INFO: AppImage file integrity OK (7z)\nWARNING: insecure (without verification)!"
 				_notify "⚠️ File exists intact | unable to verify" "$filename_linux"
 				_beep
 				aidl=false
@@ -796,14 +850,40 @@ if $aidl ; then
 			if shasum -a 256 -c --ignore-missing ./SHA256SUMS 2>&1 | grep "\.AppImage: OK$" &>/dev/null ; then
 				if $gpgverified ; then
 					echo "SUCCESS: $filename_linux verified (shasum)"
-					_notify "✅ Downloaded & verified" "Superbacked v$version (Linux)"
-					_success
 				else
 					echo -e "SUCCESS: $filename_linux verified (shasum)\nWARNING: insecure verification (shasum without GPG)!"
-					_notify "⚠️ Downloaded & verified | insecure" "GPG: $filename_linux"
-					_beep
-					errors=true
-					chmod -x ./"$filename_linux" 2>/dev/null
+				fi
+				if ! command -v 7z &>/dev/null ; then
+					echo -e "NOTE: 7z is not installed!\nINFO: skipping coarse AppImage integrity check!"
+					if $gpgverified ; then
+						_notify "✅ Downloaded & verified" "Superbacked v$version (Linux)"
+						_success
+					else
+						_notify "⚠️ Downloaded & verified | insecure" "GPG: $filename_linux"
+						_beep
+						errors=true
+						chmod -x ./"$filename_linux" 2>/dev/null
+					fi
+				else
+					echo "INFO: 7z installed"
+					if 7z t ./"$filename_linux" 2>&1 | grep "^Can not open the file as archive$" &>/dev/null ; then
+						echo "WARNING: AppImage file might be corrupted (7z)!"
+						_notify "⚠️ AppImage might be corrupted!" "7z: $filename_linux"
+						_beep
+						errors=true
+						chmod -x ./"$filename_linux" 2>/dev/null
+					else
+						echo -e "SUCCESS: AppImage file integrity coarsely verified (7z)"
+						if $gpgverified ; then
+							_notify "✅ Downloaded & verified" "Superbacked v$version (Linux)"
+							_success
+						else
+							_notify "⚠️ Downloaded & verified | insecure" "GPG: $filename_linux"
+							_beep
+							errors=true
+							chmod -x ./"$filename_linux" 2>/dev/null
+						fi
+					fi
 				fi
 			else
 				echo "ERROR: $filename_linux verification failed (shasum)!"
@@ -824,13 +904,17 @@ fi
 
 if $errors ; then
 	echo "NOTE: there were errors!"
+	echo -e "$disclaimererror" > "$disclaimerloc" 2>/dev/null
 	open -a Console.app "$logloc" &>/dev/null
+	_finalerror
 	exit 1
 else
 	echo "INFO: executed without errors"
+	echo -e "$disclaimersuccess" > "$disclaimerloc" 2>/dev/null
 	if $certcheckwarning ; then
 		open -a Console.app "$logloc" &>/dev/null
 	fi
+	_finalsuccess
 	if $rndownloaded ; then
 		qlmanage -p "$dlpath/$rnfilename" &>/dev/null
 	fi
