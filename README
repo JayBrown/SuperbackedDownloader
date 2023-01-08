@@ -2,7 +2,7 @@ Superbacked Downloader (sbdl)
 
 macOS shell script and LaunchAgent to automatically download and verify Superbacked updates and auxiliary files
 
-Current version: 0.6.0
+Current version: 0.6.1
 
 Superbacked website: https://superbacked.com/
 Superbacked on GitHub: https://github.com/superbacked/superbacked
