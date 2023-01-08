@@ -2,14 +2,14 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2164
 
-# sbdl 0.6.1
+# sbdl 0.6.2
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
-sbdlversion="0.6.1"
+sbdlversion="0.6.2"
 uiprocess="Superbacked Downloader"
 process="sbdl"
 account=$(id -u)
@@ -132,8 +132,18 @@ if ! [[ $license ]] || echo "$license" | grep "yourLicenseKey" &>/dev/null ; the
 	_notify "ℹ️ Software license key missing!" "Please edit configuration sbdl.cfg manually"
 	_info
 	if $fileman ; then
-		echo "Revealing configuration folder in $fmname ($filemanager)..."
-		open -a "$fmname" "$configdir" &>/dev/null
+		if pgrep -x "$fmname" &>/dev/null ; then
+			echo "Revealing configuration folder in $fmname ($filemanager)..."
+			open -a "$fmname" "$configdir" &>/dev/null
+		else
+			if pgrep -x "Finder" &>/dev/null ; then
+				echo "Revealing configuration file in Finder (com.apple.Finder)..."
+				osascript -e "tell application \"Finder\"" -e "activate" -e "reveal POSIX file \"$configloc\"" -e "end tell" &>/dev/null
+			else
+				echo "Revealing configuration folder in default file manager..."
+				open "$configdir" &>/dev/null
+			fi
+		fi
 	else
 		if pgrep -x "Finder" &>/dev/null ; then
 			echo "Revealing configuration file in Finder (com.apple.Finder)..."
