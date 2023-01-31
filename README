@@ -2,7 +2,7 @@ Superbacked Downloader (sbdl)
 
 macOS shell script and LaunchAgent to automatically download and verify Superbacked updates and auxiliary files
 
-Current version: 0.6.2
+Current version: 0.7.0
 
 SUPERBACKED INFORMATION
 
@@ -82,6 +82,7 @@ OPTIONAL CONFIGURATION
 * DownloadPath: enter a download directory (full path) to avoid downloading to ~/Downloads
 * LinuxDownload: enter 'y' or 'yes' etc. to additionally download the Linux AppImage
 * ReleaseLabel: enter 'op' as the software label if you are not using the default 'std' release
+* Platform (Linux only): enter 'x64' or 'arm64' (defaults to 'x64')
 * save & close
 
 MANDATORY DEPENDENCIES

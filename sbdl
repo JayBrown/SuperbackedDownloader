@@ -1,19 +1,23 @@
 #!/bin/zsh
 # shellcheck shell=bash
 # shellcheck disable=SC2164
+# shellcheck disable=SC2317
 
-# sbdl 0.6.2
+# sbdl 0.7.0
 # download Superbacked & auxiliary files
 # shell script for LaunchAgent
 
 export LANG=en_US.UTF-8
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/opt/local/bin:/opt/local/sbin:"$HOME"/.local/bin:"$HOME"/.local/sbin
 
-sbdlversion="0.6.2"
-uiprocess="Superbacked Downloader"
+sbdlversion="0.7.0"
 process="sbdl"
+uiprocess="Superbacked Downloader"
 account=$(id -u)
 accountname=$(id -un)
+sbdlid="local.$accountname.$process"
+sbdlpid=$$
+
 appdlurl1="https://superbacked.com/api/downloads/superbacked-"
 appdlurl2="-latest.dmg?license="
 appdlurl3="-latest.AppImage?license="
@@ -23,11 +27,26 @@ devgpg="Primary key fingerprint: E786 274B C92B 47C2 3C1C  F44B 8C9C A674 C47C A
 currentskid="0A3997912C165C0C15E2BBF4FB7BEB8D69B186E2"
 currentteamid="4YAQ5SFA65"
 currentsubject="Developer ID Application: Superbacked, Inc. (4YAQ5SFA65)"
+
 disclaimersuccess="DON'T TRUST, VERIFY! You should not trust third parties for critical software: please verify the files manually to confirm that this release is not compromised!\n\nSUPERBACKED DOWNLOADER ('THE SOFTWARE') IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, ESPECIALLY LOST OR STOLEN SECRETS AND ASSOCIATED DATA OR VALUE, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
 disclaimererror="DON'T TRUST, VERIFY! You should not trust third parties for critical software: please verify the files manually to confirm that this release is compromised, notify the developer, and download again at a later date!\n\nSUPERBACKED DOWNLOADER ('THE SOFTWARE') IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, ESPECIALLY LOST OR STOLEN SECRETS AND ASSOCIATED DATA OR VALUE, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
 
-logloc="$HOME/Library/Logs/local.$accountname.$process.log"
-exec > >(tee -a "$logloc") 2>&1
+# log file
+logloc="$HOME/Library/Logs/$sbdlid.log"
+if command -v flog &>/dev/null ; then
+	flogging=true
+else
+	flogging=false
+	! [[ -e "$logloc" ]] && touch "$logloc" 2>/dev/null
+fi
+logmsgall=""
+exec > >(tee -a "$logloc") 2>&1 ### delete eventually
+
+# check for interactive mode
+case $(ps -o stat= -p $$) in
+	*+*) interactive=true ;;
+	*) interactive=false ;;
+esac
 
 # for testing only
 override=false
@@ -39,7 +58,7 @@ fi
 configdir="$HOME/Library/Application Support/SuperbackedDownloader"
 ! [[ -d "$configdir" ]] && mkdir -p "$configdir" 2>/dev/null
 configloc="$configdir/sbdl.cfg"
-! [[ -f "$configloc" ]] && echo -e "# Mandatory: please enter your personal software license key\nLicense: <yourLicenseKey>\n# Optional: enter the full path to your preferred download folder\nDownloadPath: \n# Optional: replace with '1', 'y', 'yes', 'Y', 'YES' or 'Yes' for additional Linux AppImage download\nLinuxDownload: no\n# Optional: release label can be set to 'op' (special operator release for law firms)\nReleaseLabel: " > "$configloc" 2>/dev/null
+! [[ -f "$configloc" ]] && echo -e "# Mandatory: please enter your personal software license key\nLicense: <yourLicenseKey>\n# Optional: enter the full path to your preferred download folder\nDownloadPath: \n# Optional: replace with '1', 'y', 'yes', 'Y', 'YES' or 'Yes' for additional Linux AppImage download\nLinuxDownload: no\n# Optional: release label can be set to 'op' (special operator release for law firms)\nReleaseLabel: \n# Optional (Linux only): enter 'arm' or 'x64' to download a build for a specific architecture\n# Note (macOS/std): downloads will default to universal binaries (arm+intel/x64)\n# Note (macOS/op): downloads will default to Apple Silicon (arm64)\n# Note (Linux): downloads will default to x64 binaries\nPlatform: x64" > "$configloc" 2>/dev/null
 
 # function: error beep
 _beep () {
@@ -75,6 +94,62 @@ _redirect () {
 	fi
 }
 
+### to be added later ###
+# function: output & logging
+_flog () {
+	loglevel="$1" # default | error | fault | info || final | init || unused: debug
+	shift
+	logcat="$1" # only used for levels error, fault & final: critical (fault) | errors (final) | note (error) | warning (error)
+	shift
+	logmsg="$*"
+	if [[ $loglevel =~ ^(error|fault)$ ]] ; then # stderr
+		if $interactive ; then # in Terminal: only stderr
+			echo -e "$logmsg" >&2
+		else # agent mode: stdout & stderr (with id pid level category)
+			errdate=$(date)
+			echo -e "$errdate  $sbdlid [$sbdlpid] <$loglevel>: $$logcat\n$logmsg" >&2
+			echo -e "$logmsg" 
+		fi
+	else # stdout only
+		echo -e "$logmsg"
+	fi
+	if $flogging ; then # use flog for every logging action (also log into file as info log)
+		if [[ $loglevel != "init" ]] ; then
+			logmsg=$(echo -e "$logmsg")
+		else
+			logmsg=$(echo -e "\n$logmsg")
+		fi
+		flog -a "$logloc" -l "$loglevel" -s "$sbdlid" -c "$logcat" "$logmsg" &>/dev/null
+	else # use built-in logger CLI
+		logmsgall="$logmsgall\n$logmsg" # populate for final info logging to log file
+		if [[ $loglevel != "final" ]] ; then # note: do not log default & info messages (only part of final info)
+			if [[ $loglevel =~ ^(error|fault)$ ]] ; then # log only to Unified Log (not to log file)
+				logmsg=$(echo -e "$logmsg")
+				if [[ $logcat == "warning" ]] ; then # user.4 = Warning
+					logger -p user.4 -t "$sbdlid" "$logmsg" &>/dev/null
+				elif [[ $logcat == "note" ]] ; then # user.5 = Notice
+					logger -p user.5 -t "$sbdlid" "$logmsg" &>/dev/null
+				else
+					if [[ $loglevel == "fault" ]] ; then
+						priority="user.2" # user.2 = Critical
+					else
+						priority="user.3" # user.3 = Error
+					fi
+					logger -s -p "$priority" -t "$sbdlid" "$logmsg" &>/dev/null
+				fi
+			fi
+		else # final info logging (also into log file)
+			logmsgall=$(echo -e "$logmsgall")
+			if [[ $logcat == "errors" ]] ; then # log as "Notice"
+				logger -i -s -p user.5 -t "$sbdlid" "$logmsgall" 2>> "$logloc"
+			else # log as "Info"
+				logger -i -s -p user.6 -t "$sbdlid" "$logmsgall" 2>> "$logloc"
+			fi
+		fi
+	fi
+}
+###
+
 # function: final success prompt
 _finalsuccess () {
 osascript &>/dev/null << EOL
@@ -97,8 +172,21 @@ end tell
 EOL
 }
 
+# initial info
 currentdate=$(date)
-echo -e "\n*** $uiprocess ($process $sbdlversion) launched: $currentdate ***"
+echo -e "\n*** $uiprocess ($process $sbdlversion) launched: $currentdate ***" ### delete!
+# _flog init - "*** $uiprocess ($process $sbdlversion) launched: $currentdate ***"
+if $interactive ; then
+	echo "INFO: $process running in interactive mode (PID: $sbdlpid)"
+	# _flog default general "foo bar baz" ###
+else
+	echo "INFO: $process running in background (PID: $sbdlpid)"
+fi
+if $flogging ; then
+	echo "INFO: flog installed"
+else
+	echo "NOTE: flog not installed! Using logger as fallback..."
+fi
 
 # configuration
 config=$(cat "$configloc" 2>/dev/null)
@@ -167,9 +255,6 @@ else
 	bundleid="com.superbacked.$label"
 	echo "INFO: set to $label release ($bundleid)"
 fi
-finalappdlurl="$appdlurl1$label$appdlurl2$license"
-wherefromurl="https://superbacked.com/api/downloads/superbacked-$label-latest.dmg"
-wherefromurl_linux="https://superbacked.com/api/downloads/superbacked-$label-latest.AppImage"
 
 # read remote version number
 if ! _redirect "$relurl" ; then
@@ -253,10 +338,51 @@ linuxinfo=$(echo "$config" | grep "^LinuxDownload:" | awk -F":" '{print $2}' | x
 if [[ $linuxinfo =~ ^(1|y|Y|yes|YES|Yes)$ ]] ; then
 	linuxdl=true
 	echo "INFO: Linux AppImage download enabled"
-	finalappdlurl_linux="$appdlurl1$label$appdlurl3$license"
 else
 	linuxdl=false
 	echo "INFO: Linux AppImage download disabled"
+fi
+
+# check architecture setting
+platform=$(echo "$config" | grep "^Platform:" | awk -F":" '{print $2}' | xargs | sed -e 's/^ *//' -e 's/ *$//')
+if ! [[ $platform ]] ; then
+	if [[ $label == "op" ]] ; then
+		macosarch="arm64"
+		linuxarch="x64"
+	else
+		macosarch="universal"
+		linuxarch="x64"
+	fi
+	echo "INFO: auto-set to architectures $macosarch (macOS) & $linuxarch (Linux)"
+else
+	if [[ $label == "op" ]] ; then
+		macosarch="arm64"
+	else
+		macosarch="universal"
+	fi
+	echo "INFO: auto-set macOS architecture to $macosarch ($label)"
+	if $linuxdl ; then
+		if [[ $platform =~ ^(arm|arm64|Arm|ARM|Arm64|ARM64)$ ]] ; then
+			linuxarch="arm64"
+			echo "INFO: set Linux architecture to arm64"
+		elif [[ $platform =~ ^(x64|intel|amd|amd64|AMD|AMD64|Intel|X64)$ ]] ; then
+			linuxarch="x64"
+			echo "INFO: set Linux architecture to x64"
+		else
+			linuxarch="x64"
+			echo "INFO: auto-set Linux architecture to x64"
+		fi
+	else
+		echo "NOTE: not setting Linux architecture (Linux download disabled)"
+	fi
+fi
+
+# populate download URLs
+finalappdlurl="$appdlurl1$label-$macosarch$appdlurl2$license"
+wherefromurl="https://superbacked.com/api/downloads/superbacked-$label-$macosarch-latest.dmg"
+if $linuxdl ; then
+	finalappdlurl_linux="$appdlurl1$label-$linuxarch$appdlurl3$license"
+	wherefromurl_linux="https://superbacked.com/api/downloads/superbacked-$label-$linuxarch-latest.AppImage"
 fi
 
 # download auxiliary files from GitHub first
@@ -444,7 +570,7 @@ fi
 appcheck=true
 dmgcheck=true
 filename=$(curl -sI --connect-timeout 10 "$finalappdlurl" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
-! [[ $filename ]] && filename="superbacked-$label-$version.dmg"
+! [[ $filename ]] && filename="superbacked-$label-$macosarch-$version.dmg"
 if [[ -f ./"$filename" ]] ; then
 	echo "NOTE: $filename already exists at download path - checking..."
 	if $shasumdownloaded ; then
@@ -783,7 +909,7 @@ fi
 
 # download main application (AppImage/Linux)
 filename_linux=$(curl -sI --connect-timeout 10 "$finalappdlurl_linux" 2>&1 | grep "filename=" | awk -F"filename=" '{print $2}' | xargs | tr -cd '\40-\176')
-! [[ $filename_linux ]] && filename_linux="superbacked-$label-$version.AppImage"
+! [[ $filename_linux ]] && filename_linux="superbacked-$label-$linuxarch-$version.AppImage"
 aidl=true
 if [[ -f ./"$filename_linux" ]] ; then
 	echo "NOTE: $filename_linux already exists at download path - checking..."
